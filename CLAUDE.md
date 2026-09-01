@@ -17,7 +17,7 @@ Heizung ── eBUS ── Adapter Shield C6 ── ebusd ── custom_componen
 
 ```
 python3 tests/test_ebusd.py         # 32 Prüfungen, braucht kein Home Assistant
-python3 tests/test_translations.py  # 258 Prüfungen, braucht kein Home Assistant
+python3 tests/test_translations.py  # 261 Prüfungen, braucht kein Home Assistant
 ```
 
 `test_ebusd.py` spielt wortgetreue `ebusctl`-Antworten der echten Anlage gegen
@@ -67,8 +67,9 @@ Wo eine Prüfung Heizkreis und Mischerkreis unterscheiden muss, darf sie nicht
    ihre Größe mit dem Poll-Satz und meldet nur bei Abweichung neu an. Ein
    Zeitplan genügt nicht — ein Rescan von ebusd wirft die Einträge jederzeit
    heraus. `tests/test_translations.py` hält den Satz gegen den tatsächlichen
-   Registerbedarf der Plattformen; `POLL_PASSIVE` nennt die Ausnahmen, die
-   sich nicht pollen lassen.
+   Registerbedarf der Plattformen; `POLL_EXEMPT` nennt die Register, die
+   bewusst draußen bleiben — je mit Grund, denn jede Ausnahme macht alle
+   übrigen schneller.
 7. **Ein Roundtrip pro Kreis** über `find` statt einer Leseanfrage je Register.
    Der eBUS ist langsam; `find` liest nur den Cache von ebusd. Einzige
    Ausnahme: nach einem Schreibvorgang ein `read -f` auf die zugehörige

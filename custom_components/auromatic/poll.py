@@ -21,18 +21,21 @@ Nachricht um ihren Prioritätswert nach hinten. Niedrige Zahl heißt also
 häufiger, und ein Register mit Priorität 9 kommt ein Neuntel so oft dran wie
 eines mit Priorität 1.
 
-Daraus die Zweiteilung unten:
+Daraus die drei Stufen unten:
 
-* `POLL_MEASURED` -- Werte, die sich von selbst ändern. Sie bestimmen, was in
-  der Oberfläche und in der Statistik als Verlauf ankommt.
-* `POLL_SETTING` -- Sollwerte, Konfiguration und Zählerstände. Sie ändern sich
-  nur, wenn jemand sie ändert, und dann liest `write_and_confirm` sie ohnehin
-  sofort mit `read -f` frisch vom Bus. Sie brauchen die Warteschlange nur für
-  den Fall, dass jemand direkt am Regler dreht.
+* `POLL_MEASURED` (1) -- Werte, die sich von selbst ändern. Sie bestimmen, was
+  in der Oberfläche und in der Statistik als Verlauf ankommt.
+* `POLL_CONTROL` (3) -- Betriebsarten und der Warmwassersollwert. Aus Home
+  Assistant heraus gesetzt, liest `write_and_confirm` sie ohnehin sofort mit
+  `read -f` zurück; die Warteschlange zählt nur für den Fall, dass jemand am
+  Regler selbst dreht. Zwanzig Minuten wären dafür zu träge, zwei zu teuer.
+* `POLL_SETTING` (9) -- Sollwerte, Konfiguration und Zählerstände. Sie ändern
+  sich selten, und niemand wartet auf sie.
 
-Mit 21 Registern auf `POLL_MEASURED` und 20 auf `POLL_SETTING` kommt ein
-Messwert rund alle 2,3 Minuten an die Reihe, ein Sollwert alle 21 -- bei
-unveränderter Buslast gegenüber den 156 Nachrichten von vorher.
+Mit 18 Registern auf 1, vier auf 3 und 16 auf 9 ergeben sich 21,11 Anteile:
+ein Messwert kommt rund alle 2,1 Minuten an die Reihe, ein Bedienelement alle
+6, ein Sollwert alle 19 -- bei unveränderter Buslast gegenüber den 156
+Nachrichten von vorher.
 
 **Der Poll-Satz muss vollständig sein.** Steht ein Register hier nicht drin,
 holt ebusd es nicht mehr vom Bus, und `find` liefert bis in alle Ewigkeit den
@@ -63,6 +66,10 @@ from typing import Final
 
 # Priorität 1: so oft wie möglich. Priorität 9: ein Neuntel davon.
 POLL_MEASURED: Final = 1
+# Bedienelemente in der Mitte: sie ändern sich nur, wenn jemand sie ändert --
+# aber wenn das am Regler selbst passiert statt in Home Assistant, soll die
+# Oberfläche nicht zwanzig Minuten hinterherhinken.
+POLL_CONTROL: Final = 3
 POLL_SETTING: Final = 9
 
 # Ein Sollwert darf ruhig eine Weile alt sein, aber nicht beliebig: dieser
@@ -70,16 +77,22 @@ POLL_SETTING: Final = 9
 # Busverkehr auslöst, solange der Zwischenspeicher etwas Brauchbares enthält.
 POLL_REGISTER_MAXAGE: Final = 3600
 
-# Register, die die Integration liest, die aber **nicht** gepollt werden
-# können. `roomtempoffset.inc` definiert `RoomTempOffset` ausschließlich
-# schreibend (`*w` / `w`), es gibt keine Lesevariante -- `read -p` darauf
-# beantwortet ebusd mit "ERR: element not found". Einen Wert hat das Register
-# trotzdem: ebusd hört den Schreibvorgang des Bedienteils passiv mit und legt
-# ihn in den Zwischenspeicher. Der Wert ist damit so aktuell, wie der Regler
-# ihn zuletzt gesetzt hat, und braucht keine Anfrage von uns.
-POLL_PASSIVE: Final[frozenset[tuple[str, str]]] = frozenset({
-    ("mc", "RoomTempOffset"),
-})
+# Register, die die Integration zwar liest, die aber bewusst nicht gepollt
+# werden -- je mit dem Grund. Jeder Eintrag hier kostet einen Platz in der
+# Warteschlange weniger und macht damit alle übrigen schneller.
+POLL_EXEMPT: Final[dict[tuple[str, str], str]] = {
+    # Nur schreibend definiert (`*w` / `w` in roomtempoffset.inc), es gibt
+    # keine Lesevariante -- `read -p` darauf beantwortet ebusd mit
+    # "ERR: element not found". Einen Wert hat das Register trotzdem: ebusd
+    # hört den Schreibvorgang des Bedienteils passiv mit.
+    ("mc", "RoomTempOffset"): "nur schreibend definiert, ebusd hört passiv mit",
+    # Diese Anlage hat ein Kollektorfeld und drei Speicherfühler. Beide
+    # Register melden `cutoff`, es entsteht keine Entität -- sie würden einen
+    # der schnellen Plätze für nichts belegen. Wird ein zweites Kollektorfeld
+    # oder der dritte Speicherfühler angeschlossen, müssen sie hier raus.
+    ("sc", "Coll2Sensor"): "nicht angeschlossen (cutoff)",
+    ("sc", "Storage3Sensor3"): "nicht angeschlossen (cutoff)",
+}
 
 # Kreis -> Nachricht -> Priorität.
 POLL_SET: Final[dict[str, dict[str, int]]] = {
@@ -92,7 +105,7 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         "TempDesired": POLL_SETTING,
         "TempDesiredLow": POLL_SETTING,
         "HeatingCurve": POLL_SETTING,
-        "OperatingMode": POLL_SETTING,
+        "OperatingMode": POLL_CONTROL,
         "FlowTempMax": POLL_SETTING,
     },
     "mc": {
@@ -101,20 +114,18 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         "TempDesired": POLL_SETTING,
         "TempDesiredLow": POLL_SETTING,
         "HeatingCurve": POLL_SETTING,
-        "OperatingMode": POLL_SETTING,
+        "OperatingMode": POLL_CONTROL,
         "FlowTempMax": POLL_SETTING,
     },
     "hwc": {
         "Storage1Sensor2": POLL_MEASURED,
-        "TempDesired2": POLL_SETTING,
-        "OperatingMode2": POLL_SETTING,
+        "TempDesired2": POLL_CONTROL,
+        "OperatingMode2": POLL_CONTROL,
     },
     "sc": {
         "Coll1Sensor": POLL_MEASURED,
-        "Coll2Sensor": POLL_MEASURED,
         "Storage1Sensor3": POLL_MEASURED,
         "Storage2Sensor3": POLL_MEASURED,
-        "Storage3Sensor3": POLL_MEASURED,
         "Storage4Sensor3": POLL_MEASURED,
         "SumBackflowSensor": POLL_MEASURED,
         "YieldSensor": POLL_MEASURED,
@@ -129,7 +140,7 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
     },
     "ui": {
         "FlowTemp": POLL_MEASURED,
-        "RoomTemp": POLL_MEASURED,
+        "RoomTemp": POLL_SETTING,
         "SystemModeStream1": POLL_MEASURED,
         "BoilerHoursB1": POLL_SETTING,
         "YieldThisYear": POLL_SETTING,

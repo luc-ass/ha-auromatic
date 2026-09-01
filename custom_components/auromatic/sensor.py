@@ -118,6 +118,11 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         key="collector_2", circuit="sc", message="Coll2Sensor",
         status_field=1, suggested_display_precision=1, **_TEMP,
     ),
+    # Die vier Storage-Register sind nicht vier Speicherhöhen: der Regler
+    # zeigt in Menü 6 „Speicherfühler 1..3" und danach „Fühler TD1/TD2".
+    # Storage1..3 sind die Speicherfühler (1 oben, 2 unten, 3 hier nicht
+    # angeschlossen), Storage4 ist TD1 aus der Differenztemperaturregelung --
+    # kein Speicherfühler, deshalb auch keine monotone Solarladekurve.
     AuromaticSensorDescription(
         key="storage_1", circuit="sc", message="Storage1Sensor3",
         status_field=1, suggested_display_precision=1, **_TEMP,
@@ -135,10 +140,21 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
+        # Trotz des Circuits `sc` kein Solarfühler: der Sammelrücklauf der
+        # Heizung, Gegenstück zu `hc SumFlowSensor` (Sammelvorlauf). Er stand
+        # am 2026-09-01 über 14 Stunden bei 26,1–26,5 °C, quer durch sechs
+        # Pumpenzyklen bei bis zu 77 °C Kollektor -- Kellerniveau, weil der
+        # Brenner abgeschaltet ist. Angeschlossen ist er (Status `ok`).
         key="backflow", circuit="sc", message="SumBackflowSensor",
         status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
+        # Der Ertragsfühler sitzt im Solarrücklauf und heißt deshalb so in der
+        # Oberfläche: er ist die kalte Seite der Ertragsrechnung (heiße Seite
+        # ist der Kollektorfühler, Durchsatz `SolFlowRate` = 3,50 l/min). Über
+        # den Pumpenbetrieb folgt er dem Speicher unten (+1,3 K ± 1,9 K), nicht
+        # dem Kollektor (−10,6 K ± 4,6 K), und fällt zweimal sogar darunter.
+        # Einen Vorlauffühler hat der Solarkreis nicht.
         key="yield_sensor", circuit="sc", message="YieldSensor",
         status_field=1, suggested_display_precision=1, **_TEMP,
     ),

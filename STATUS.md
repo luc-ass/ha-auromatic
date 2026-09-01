@@ -27,8 +27,13 @@ Stand: 2026-09-01. Planungsdokument mit Herleitung und Registerkarte:
 | `mc` | 0x50 | **Mischerkreis = Fußbodenheizung** | `vaillant/50.solsy.mc.csv` |
 | `sc` | 0xec | Solarkreis | `vaillant/ec.solsy.sc.csv` |
 
-Zusätzlich senden zwei Master `0x3f` und `0x7f`, deren Slaves `0x44` / `0x84`
-keine Identifikation beantworten. Unbekannt, bislang unkritisch.
+Zusätzlich führt ebusd zwei Master `0x3f` und `0x7f` (`masters: 4`, #23 und
+#24). **Sie senden keine Nutzlast.** In einer vollständigen Busaufnahme
+(`grab result all`, 2026-09-01) stammt jedes einzelne Telegramm entweder vom
+Bedienteil `0x10` oder von ebusd `0x31` — von `0x3f` und `0x7f` keines, und
+ihre Slave-Adressen `0x44` / `0x84` erscheinen in `info` gar nicht erst. Die
+Liste der gesehenen Master entsteht aus einzelnen Arbitrierungsbytes; genau so
+sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
 
 ### Anlagenspezifische Besonderheiten
 
@@ -38,22 +43,42 @@ keine Identifikation beantworten. Unbekannt, bislang unkritisch.
   *Folge: Heizfunktionen sind derzeit nicht thermisch verifizierbar — ein
   Schreibvorgang lässt sich nur zurücklesen. Warmwasser und Solar laufen.*
 - **Ein Kollektorfeld.** `sc Coll2Sensor` meldet `cutoff`, ebenso
-  `sc Storage3Sensor3`. Drei Speicherfühler sind aktiv.
+  `sc Storage3Sensor3`.
+- **Die vier `Storage*Sensor3` sind nicht vier Speicherhöhen.** Der Regler
+  listet in Menü 6 („Solarspeicher — Information") „Speicherfühler 1",
+  „Speicherfühler 2", „Speicherfühler 3", „Fühler TD1", „Fühler TD2"
+  (Bedienungsanleitung 0020094390, Kap. 5.10). `Storage1..3Sensor3` sind die
+  Speicherfühler — 1 oben, 2 unten, 3 hier nicht angeschlossen —,
+  `Storage4Sensor3` ist **TD1** aus der Differenztemperaturregelung und damit
+  gar kein Speicherfühler. Die Messwerte des 2026-09-01 bestätigen das:
+  `Storage2Sensor3` fährt die glatte Solarladekurve (59,6 °C um 13:20 auf
+  65,1 °C um 16:45, danach langsam fallend), `Storage4Sensor3` springt
+  denselben Tag ohne Trend zwischen 55,9 und 61,4 °C. Nur zwei aktive
+  Speicherfühler also, nicht drei.
 - **Der MQTT-Zweig von ebusd ist abgeschaltet** (`seed_mqtt_cfg: false`,
   2026-09-01). Er stammte aus dem ersten Anlauf über MQTT und war nicht nur
   Altlast: der MQTT-Handler von ebusd setzt Poll-Prioritäten
   (`setPollPriority` → `addPollMessage`) und spannte damit den
   156-Nachrichten-Poll-Satz auf, aus dem sich der Zwischenspeicher füllte, den
-  `find` liest. Diese Aufgabe hat jetzt `poll.py` mit 40 Registern. Die 158
+  `find` liest. Diese Aufgabe hat jetzt `poll.py` mit 38 Registern. Die 158
   MQTT-Entitäten sind verschwunden.
 - **`scan` springt immer wieder kurz auf `running`.** Vermutlich die beiden
   Master `0x3f` / `0x7f`, die sich nicht identifizieren lassen. Folge: ein
   Rescan wirft Nachrichten still aus der Poll-Liste. Deshalb prüft der
   Koordinator ihre Länge bei jedem Abruf.
 - **Solarhysterese: 12 K ein, 5 K aus.** `SolEnableDiffTemp1` und
-  `SolDisableDiffTemp1`, gemessen zwischen Kollektor 1 und **Speicher unten**
-  (`Storage4Sensor3`), nicht gegen Speicher oben. Am 2026-09-01 live bestätigt:
-  bei 70,7 °C Kollektor gegen 58,8 °C Speicher unten (11,9 K) lief die Pumpe an.
+  `SolDisableDiffTemp1`, gemessen gegen Kollektor 1, nicht gegen Speicher oben.
+  Am 2026-09-01 live beobachtet: bei 70,7 °C Kollektor gegen 58,8 °C
+  `Storage4Sensor3` (11,9 K) lief die Pumpe an. **Welcher Fühler die
+  Bezugsgröße ist, ist damit offen**: `Storage4Sensor3` ist nach der
+  Fühlerzuordnung oben TD1 und kein Speicherfühler, und die Bedienungsanleitung
+  beschreibt die Differenztemperaturregelung als „Differenz zwischen
+  Kollektortemperatur und Speichertemperatur" — das wäre `Storage2Sensor3`.
+  Die eine Beobachtung passt zahlenmäßig zu TD1 (11,9 K gegen 12 K
+  Einschaltdifferenz), gegen `Storage2Sensor3` wären es rund 9,7 K gewesen.
+  Sie steht aber auf Messwerten, die bis zu 135 s alt sein können, bei steil
+  steigendem Kollektor. Zu klären an einem Pumpenstart mit ruhigem Kollektor,
+  bei dem beide Differenzen mitgeschrieben werden.
   Beide Register sind `r;w` vom Typ `temp0`, also nur ganze Kelvin. Weitere
   Solarparameter am Bus, bislang nicht eingebunden: `ScProtectionHysteresis`
   (30), `SolProtectionStartTemp` (130), `SolHwcMaxLoadTemp1` (90),
@@ -62,6 +87,42 @@ keine Identifikation beantworten. Unbekannt, bislang unkritisch.
   nur 100 (ein) und 0 (aus). Sie ist deshalb ein Binärsensor, kein
   Prozentsensor -- eine Einschaltdauer, die nie zwischen den Werten steht,
   ist keine Kennzahl.
+- **`sc YieldSensor` sitzt im Solarrücklauf, `sc SumBackflowSensor` gar nicht
+  im Solarkreis.** Am 2026-09-01 über 14 Stunden mit sechs Pumpenzyklen
+  (Kollektor 63,4–77,1 °C) nachgemessen. Der Ertragsfühler folgt dabei dem
+  Speicher unten (Mittel +1,3 K, Streuung ±1,9 K) und nicht dem Kollektor
+  (−10,6 K, ±4,6 K); zweimal liegt er sogar unter dem Speicher unten, was ein
+  Vorlauffühler bei laufender Pumpe nicht kann. Er ist die kalte Seite der
+  Ertragsrechnung — heiße Seite ist der Kollektorfühler, Durchsatz
+  `SolFlowRate` 3,50 l/min, um 15:37 also 10,4 K ≈ 2,3 kW. **Einen
+  Vorlauffühler hat der Solarkreis nicht.** `SumBackflowSensor` dagegen stand
+  denselben Tag monoton bei 26,06–26,50 °C, ohne einen Ausschlag bei irgendeinem
+  Pumpenzyklus, und schwingt abends auf dasselbe Kellerniveau aus wie der
+  Ertragsfühler (26,4 gegen 27,1 °C), während der Kollektor auf 24,7 °C fällt.
+  Er ist der Sammelrücklauf der Heizung, Gegenstück zu `hc SumFlowSensor`
+  (Sammelvorlauf, 23,75 °C = `ui FlowTemp`), und tot auf Raumtemperatur, weil
+  der Brenner abgeschaltet ist — angeschlossen ist er (Status `ok`, ein
+  abgeklemmter Fühler meldet `cutoff`). Die Oberflächennamen sind deshalb
+  seit 2026-09-01 „Solarrücklauf" (`yield_sensor`) und „Sammelrücklauf"
+  (`backflow`). Der Circuit `sc` bleibt für `backflow` stehen, obwohl `hc` die
+  ehrlichere Zuordnung wäre: ein Wechsel ändert die `unique_id` und wirft die
+  Historie der Entität weg.
+- **`RoomTempOffset` gibt es auch am Heizkreis.** Das Bedienteil schreibt den
+  Offset (`b505 04 2d 00`) in der Busaufnahme 61-mal auf `0x50` *und* 61-mal
+  auf `0x26`, beide Kreise quittieren. Auf Busebene existiert das Register also
+  in beiden; es fehlt nur in der ebusd-Definition, weil `hcmode_inc.tsp` das
+  `roomtempoffset.inc` nicht einbindet. Der feinere Regelhebel ist damit nicht
+  auf den Mischerkreis beschränkt.
+- **Niemand sonst schreibt auf unsere Register.** Alle Schreibtelegramme der
+  Aufnahme kommen vom Bedienteil und gehen auf `2d00` (RoomTempOffset), `2700`
+  und `2b0f` (beide unbekannt, in keiner CSV). Unsere Ziele `2b00`, `3200`,
+  `3300` und `3500` beschreibt kein anderer Teilnehmer.
+- **`hc SumFlowSensor` pollt ebusd nicht selbst.** Es steht in der Poll-Liste
+  (`poll: 38`) und hat einen gültigen Wert (22,81 °C, `ok`), aber in der
+  Aufnahme sendet ebusd dafür keine einzige eigene Anfrage — das Bedienteil
+  fragt es 256-mal ab, ebusd schneidet mit. Offenbar überspringt der Poll, was
+  ohnehin frisch im Zwischenspeicher liegt. Fremdverkehr auf dem Bus
+  verbilligt unseren Satz also, statt ihn zu stören.
 - **Keine brauchbare Raumtemperatur.** `ui RoomTemp` liefert zwar gültige Werte
   (~30 °C), das Bedienteil hängt aber im Heizungsraum. Als Führungsgröße
   bestätigt unbrauchbar.
@@ -81,7 +142,7 @@ keine Identifikation beantworten. Unbekannt, bislang unkritisch.
 |---|---|
 | `ebusd.py` | Asynchroner TCP-Client für Port 8888, `parse_field`, Filterlogik |
 | `coordinator.py` | `DataUpdateCoordinator`, ein `find` pro Kreis je Intervall |
-| `poll.py` | Welche 41 Register ebusd aktiv vom Bus holen soll, in zwei Prioritäten |
+| `poll.py` | Welche 38 Register ebusd aktiv vom Bus holen soll, in drei Prioritäten |
 | `entity.py` | `CircuitMixin` + Basisklasse, Gerätezuordnung per `via_device` |
 | `config_flow.py` | Einrichtung inkl. Adress-Suche, Options-Flow für das Intervall |
 | `sensor.py` | Temperaturen, Erträge, Laufzeiten, Systemzustand |
@@ -120,12 +181,21 @@ Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
 - **0,5-K-Auflösung**: geschriebene 21,5 °C kommen als 21,5 °C zurück, für
   Heizkreis, Mischerkreis und Warmwasser.
 - **Eigener Poll-Satz am Gerät** (2026-09-01, nach Abschalten des MQTT-Zweigs):
-  `poll: 40`, `scan: finished`, keine Warnung im Protokoll, 39 Entitäten ohne
-  eine einzige `unavailable`. Über acht Minuten gemessen liegt der Abstand
+  `poll: 40` (der damalige Satz), `scan: finished`, keine Warnung im
+  Protokoll, 39 Entitäten ohne eine einzige `unavailable`. Über acht Minuten
+  gemessen liegt der Abstand
   zwischen zwei Messwerten bei **120–180 s** (Kollektor, Ertragsfühler,
   Außentemperatur) — im Raster des 60-Sekunden-Abrufs also rund 135 s, gegen
   **935 s** vorher. Siebenfach frischer bei unveränderter Buslast: Symbolrate
   32 von 166 möglichen, vorher 23 von 183.
+- **Die drei Prioritätsstufen am Bus nachgezählt** (2026-09-01, `grab result
+  all` gegen den laufenden Satz, `poll: 38`, Symbolrate 38 von 167): je
+  Register 20–21 Anfragen auf Stufe 1, genau 7 auf Stufe 3, genau 3 auf
+  Stufe 9 — entworfen waren 20 : 6,7 : 2,2. 37 der 38 Register erscheinen als
+  eigene Anfrage von `0x31`, das 38. (`hc SumFlowSensor`) kommt passiv herein.
+  Die mitgelesenen Antwortbytes stehen dabei sämtlich auf den Ausgangswerten
+  der Schreibtests: `hc` 25,0 / 18,0 / 1,00 / `off`, `mc` 22,0 / 19,0 / 0,50 /
+  `off`, `mc FlowTempMax` 40, `hwc` 50,0 / `auto`, `sc` 12 / 5 K.
 
 ### Nicht verifiziert
 
@@ -207,12 +277,20 @@ wäre.
 
 Die Liste ist eine Prioritätswarteschlange — nach jedem Abruf rückt eine
 Nachricht um ihren Prioritätswert nach hinten, niedrige Zahl heißt häufiger.
-Daraus die Zweiteilung in `poll.py`: 21 Messwerte auf Priorität 1, 20
+Daraus drei Stufen in `poll.py`: 18 Messwerte auf 1, vier Bedienelemente
+(Betriebsarten beider Kreise, Warmwassersollwert und -betriebsart) auf 3, 16
 Sollwerte und Zähler auf 9. Sollwerte brauchen die Warteschlange kaum, weil
 `write_and_confirm` sie nach jeder Änderung ohnehin mit `read -f` frisch holt;
-sie stehen nur drin, falls jemand direkt am Regler dreht. Rechnerisch kommt ein
-Messwert damit alle ~2,3 Minuten dran, ein Sollwert alle ~21 — bei
-unveränderter Buslast.
+sie stehen nur drin, falls jemand direkt am Regler dreht — die Bedienelemente
+deshalb in der Mitte, weil dieser Fall bei ihnen der wahrscheinlichste ist.
+Rechnerisch: ~2,1 Minuten für einen Messwert, ~6 für ein Bedienelement, ~19
+für einen Sollwert, bei unveränderter Buslast.
+
+Drei Register bleiben mit Grund draußen (`POLL_EXEMPT`): `mc RoomTempOffset`
+ist nur schreibend definiert, `sc Coll2Sensor` und `sc Storage3Sensor3` melden
+`cutoff` und haben deshalb gar keine Entität — sie würden je einen der
+schnellen Plätze für nichts belegen. Jede Ausnahme macht die übrigen
+schneller.
 
 **Am Regelwerk von Home Assistant ausgerichtet** (Integration Quality Scale).
 Umgesetzt: `has-entity-name`, `entity-unique-id`, `runtime-data`,
@@ -308,7 +386,14 @@ ohne HA-Installation.
 5. **Weitere Solarparameter**, falls gewünscht: Kollektorschutz-Schwelle und
    -Hysterese, maximale Speicherladetemperatur, Mindest-Kollektortemperatur.
    Alle `r;w`, alle vorhanden — bislang bewusst nicht eingebunden.
-6. **HACS-Struktur** bewusst zurückgestellt.
+6. **Ertragsstatistik frisst Busanteil.** `ui YieldThisYear` und
+   `YieldLastYear` stehen auf Priorität 9, wurden in der Busaufnahme aber
+   72- bzw. 36-mal abgefragt — jedes andere 9er-Register genau dreimal. Das
+   sind zusammen rund ein Fünftel aller Anfragen von ebusd, für zwei Werte,
+   die sich monatlich ändern. Ursache unklar; zu klären an der
+   Nachrichtendefinition in `15.ui.csv` (`ebusctl find -e -c ui
+   YieldThisYear`), bevor jemand am Poll-Satz dreht.
+7. **HACS-Struktur** bewusst zurückgestellt.
 
 ## 6. Versionsverwaltung
 

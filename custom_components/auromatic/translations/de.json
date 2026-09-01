@@ -69,22 +69,22 @@
         "name": "Kollektor 2"
       },
       "storage_1": {
-        "name": "Speicher oben"
+        "name": "Speicherfühler 1 (oben)"
       },
       "storage_2": {
-        "name": "Speicher Mitte"
+        "name": "Speicherfühler 2 (unten)"
       },
       "storage_3": {
-        "name": "Speicher 3"
+        "name": "Speicherfühler 3"
       },
       "storage_4": {
-        "name": "Speicher unten"
+        "name": "Fühler TD1"
       },
       "backflow": {
-        "name": "Solarrücklauf"
+        "name": "Sammelrücklauf"
       },
       "yield_sensor": {
-        "name": "Ertragsfühler"
+        "name": "Solarrücklauf"
       },
       "pump_hours": {
         "name": "Betriebsstunden Kollektorpumpe"

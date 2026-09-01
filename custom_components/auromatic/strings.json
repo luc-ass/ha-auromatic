@@ -69,22 +69,22 @@
         "name": "Collector 2"
       },
       "storage_1": {
-        "name": "Cylinder top"
+        "name": "Cylinder sensor 1 (top)"
       },
       "storage_2": {
-        "name": "Cylinder middle"
+        "name": "Cylinder sensor 2 (bottom)"
       },
       "storage_3": {
-        "name": "Cylinder 3"
+        "name": "Cylinder sensor 3"
       },
       "storage_4": {
-        "name": "Cylinder bottom"
+        "name": "Sensor TD1"
       },
       "backflow": {
-        "name": "Solar return"
+        "name": "Common return temperature"
       },
       "yield_sensor": {
-        "name": "Yield sensor"
+        "name": "Solar return"
       },
       "pump_hours": {
         "name": "Collector pump operating hours"

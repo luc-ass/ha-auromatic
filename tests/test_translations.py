@@ -32,7 +32,7 @@ _poll_spec = importlib.util.spec_from_file_location("auromatic_poll", ROOT / "po
 poll_module = importlib.util.module_from_spec(_poll_spec)
 _poll_spec.loader.exec_module(poll_module)
 poll_set = poll_module.POLL_SET
-poll_passive = poll_module.POLL_PASSIVE
+poll_exempt = set(poll_module.POLL_EXEMPT)
 
 # Plattform -> Modul. water_heater fehlt bewusst: seine Entität ist das
 # Hauptmerkmal des Geräts und trägt deshalb keinen eigenen Namen.
@@ -174,17 +174,20 @@ def main() -> int:
         poll = {(circuit, message) for circuit, msgs in poll_set.items() for message in msgs}
         used = used_messages()
         check("Poll-Satz gefunden", len(poll) > 30, f"{len(poll)} Register")
-        # Ein Register darf nur dann fehlen, wenn es ausdruecklich als passiv
-        # vermerkt ist -- schreibende Nachrichten wie mc RoomTempOffset lassen
-        # sich nicht pollen, ebusd hoert sie nur mit.
-        check("passive Register vermerkt", poll.isdisjoint(poll_passive),
-              f"{len(poll_passive)} nicht pollbar")
-        for circuit, message in sorted(used - poll - poll_passive):
+        # Ein Register darf nur dann fehlen, wenn es in POLL_EXEMPT steht --
+        # dort mit Grund, denn jede Ausnahme ist eine Entscheidung: schreibende
+        # Nachrichten lassen sich nicht pollen, nicht angeschlossene Fuehler
+        # wuerden einen Platz in der Warteschlange fuer nichts belegen.
+        check("Ausnahmen nicht doppelt", poll.isdisjoint(poll_exempt),
+              f"{len(poll_exempt)} ausgenommen")
+        for key, grund in poll_module.POLL_EXEMPT.items():
+            check(f"{key[0]}.{key[1]}: Grund vermerkt", bool(grund), grund)
+        for circuit, message in sorted(used - poll - poll_exempt):
             check(f"{circuit}.{message}: im Poll-Satz", False, "wird gelesen, aber nicht angemeldet")
-        check("kein Register ohne Anmeldung", not (used - poll - poll_passive),
+        check("kein Register ohne Anmeldung", not (used - poll - poll_exempt),
               f"{len(used)} gelesen")
-        for circuit, message in sorted(poll_passive - used):
-            check(f"{circuit}.{message}: passiv, aber ungenutzt", False, "niemand liest es")
+        for circuit, message in sorted(poll_exempt - used):
+            check(f"{circuit}.{message}: ausgenommen, aber ungenutzt", False, "niemand liest es")
         for circuit, message in sorted(poll - used):
             check(f"{circuit}.{message}: wird gebraucht", False, "angemeldet, aber niemand liest es")
         check("kein Register auf Vorrat", not (poll - used), "Satz deckt sich mit dem Bedarf")
