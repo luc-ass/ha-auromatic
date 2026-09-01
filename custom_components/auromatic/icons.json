@@ -1,0 +1,48 @@
+{
+  "entity": {
+    "sensor": {
+      "mode_state": {
+        "default": "mdi:calendar-clock"
+      },
+      "room_offset": {
+        "default": "mdi:plus-minus-variant"
+      },
+      "pump_hours": {
+        "default": "mdi:counter"
+      },
+      "boiler_hours": {
+        "default": "mdi:counter"
+      },
+      "system_mode": {
+        "default": "mdi:home-thermometer"
+      }
+    },
+    "binary_sensor": {
+      "teleswitch": {
+        "default": "mdi:phone"
+      },
+      "frost_protection": {
+        "default": "mdi:snowflake"
+      },
+      "collector_protection": {
+        "default": "mdi:weather-sunny-alert"
+      }
+    },
+    "select": {
+      "mode": {
+        "default": "mdi:calendar-clock"
+      }
+    },
+    "number": {
+      "heating_curve": {
+        "default": "mdi:chart-bell-curve-cumulative"
+      },
+      "sol_enable_diff": {
+        "default": "mdi:delta"
+      },
+      "sol_disable_diff": {
+        "default": "mdi:delta"
+      }
+    }
+  }
+}

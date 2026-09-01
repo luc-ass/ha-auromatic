@@ -12,7 +12,6 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    PERCENTAGE,
     EntityCategory,
     UnitOfEnergy,
     UnitOfTemperature,
@@ -24,9 +23,14 @@ from homeassistant.helpers.typing import StateType
 
 from .const import MODE_OPTIONS
 from .coordinator import AuromaticConfigEntry
+from .ebusd import sum_fields
 from .entity import AuromaticEntity, CircuitMixin
 
-# Kuerzel fuer die immer gleichen Temperatur-Argumente.
+# Icons stehen in icons.json und nur dort, wo keine device_class ein Symbol
+# liefert. Wo es eine gibt, wählt Home Assistant zustandsabhängig aus -- das
+# ist ausdrücklich der bevorzugte Weg, ein eigenes Icon wäre ein Rückschritt.
+
+# Kürzel für die immer gleichen Temperatur-Argumente.
 _TEMP = {
     "device_class": SensorDeviceClass.TEMPERATURE,
     "native_unit_of_measurement": UnitOfTemperature.CELSIUS,
@@ -34,20 +38,18 @@ _TEMP = {
 }
 
 
-def _sum_months(raw: str) -> StateType:
-    """Zwoelf Monatswerte der Ertragsstatistik zur Jahressumme addieren."""
-    try:
-        return sum(int(part) for part in raw.split(";"))
-    except ValueError:
-        return None
+# Nur lesend -- alle Werte stammen aus einem Abruf des Koordinators.
+PARALLEL_UPDATES = 0
 
 
 @dataclass(frozen=True, kw_only=True)
 class AuromaticSensorDescription(SensorEntityDescription, CircuitMixin):
     """Sensorbeschreibung mit optionaler Sonderauswertung."""
 
+    # Bekommt die unzerlegte Nachricht, nicht das einzelne Feld: gemeint sind
+    # Auswertungen über alle Felder, etwa die Jahressumme der Monatserträge.
     value_fn: Callable[[str], StateType] | None = None
-    # Bei mehrfeldrigen Nachrichten die restlichen Felder als Attribute zeigen.
+    # Bei mehrfeldrigen Nachrichten die einzelnen Felder als Attribute zeigen.
     expose_raw: bool = False
 
 
@@ -55,148 +57,142 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
     # --- Heizkreis (0x26) ---------------------------------------------------
     AuromaticSensorDescription(
         key="outside_temp", circuit="hc", message="OutsideTemp",
-        status_field=1, name="Aussentemperatur",
-        suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="sum_flow", circuit="hc", message="SumFlowSensor",
-        status_field=1, name="Sammelvorlauf",
-        suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="flow_desired", circuit="hc", message="FlowTempDesired",
-        name="Vorlauf Soll", suggested_display_precision=1, **_TEMP,
-    ),
-    AuromaticSensorDescription(
-        key="flow_max", circuit="hc", message="FlowTempMax",
-        name="Vorlauf Maximum", entity_category=EntityCategory.DIAGNOSTIC, **_TEMP,
-    ),
-    AuromaticSensorDescription(
-        key="mode_state", circuit="hc", message="OperatingMode",
-        name="Betriebsart", device_class=SensorDeviceClass.ENUM,
-        options=[*MODE_OPTIONS, "disabled"],
-    ),
-    # --- Fussbodenheizung / Mischerkreis (0x50) -----------------------------
-    AuromaticSensorDescription(
-        key="flow_temp", circuit="mc", message="FlowTemp",
-        status_field=1, name="Vorlauf",
         suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
+        key="flow_max", circuit="hc", message="FlowTempMax",
+        entity_category=EntityCategory.DIAGNOSTIC, **_TEMP,
+    ),
+    AuromaticSensorDescription(
+        # Der Regler kennt mit "disabled" einen Zustand, den das Bedienelement
+        # nicht anbieten darf -- deshalb als Diagnose, nicht als zweiter Hebel.
+        key="mode_state", circuit="hc", message="OperatingMode",
+        device_class=SensorDeviceClass.ENUM,
+        options=[*MODE_OPTIONS, "disabled"],
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    # --- Fußbodenheizung / Mischerkreis (0x50) ------------------------------
+    AuromaticSensorDescription(
+        key="flow_temp", circuit="mc", message="FlowTemp",
+        status_field=1, suggested_display_precision=1, **_TEMP,
+    ),
+    AuromaticSensorDescription(
         key="flow_desired", circuit="mc", message="FlowTempDesired",
-        name="Vorlauf Soll", suggested_display_precision=1, **_TEMP,
+        suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="flow_max", circuit="mc", message="FlowTempMax",
-        name="Vorlauf Maximum", entity_category=EntityCategory.DIAGNOSTIC, **_TEMP,
+        entity_category=EntityCategory.DIAGNOSTIC, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="mode_state", circuit="mc", message="OperatingMode",
-        name="Betriebsart", device_class=SensorDeviceClass.ENUM,
+        device_class=SensorDeviceClass.ENUM,
         options=[*MODE_OPTIONS, "disabled"],
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     AuromaticSensorDescription(
         key="room_offset", circuit="mc", message="RoomTempOffset",
-        name="Raumtemperatur-Korrektur", native_unit_of_measurement=UnitOfTemperature.KELVIN,
-        state_class=SensorStateClass.MEASUREMENT, entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfTemperature.KELVIN,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # --- Warmwasser (0x25) --------------------------------------------------
     AuromaticSensorDescription(
         key="storage_temp", circuit="hwc", message="Storage1Sensor2",
-        status_field=1, name="Speichertemperatur",
-        suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     # --- Solar (0xec) -------------------------------------------------------
     AuromaticSensorDescription(
         key="collector_1", circuit="sc", message="Coll1Sensor",
-        status_field=1, name="Kollektor", suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="collector_2", circuit="sc", message="Coll2Sensor",
-        status_field=1, name="Kollektor 2", suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="storage_1", circuit="sc", message="Storage1Sensor3",
-        status_field=1, name="Speicher oben", suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="storage_2", circuit="sc", message="Storage2Sensor3",
-        status_field=1, name="Speicher Mitte", suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="storage_3", circuit="sc", message="Storage3Sensor3",
-        status_field=1, name="Speicher 3", suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="storage_4", circuit="sc", message="Storage4Sensor3",
-        status_field=1, name="Speicher unten", suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="backflow", circuit="sc", message="SumBackflowSensor",
-        status_field=1, name="Solarruecklauf", suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="yield_sensor", circuit="sc", message="YieldSensor",
-        status_field=1, name="Ertragsfuehler", suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="pump_hours", circuit="sc", message="CollPumpHRuntime1",
-        name="Betriebsstunden Kollektorpumpe",
         native_unit_of_measurement=UnitOfTime.HOURS,
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
-    AuromaticSensorDescription(
-        key="pump_duty", circuit="sc", message="SolCollPumpED1",
-        name="Einschaltdauer Kollektorpumpe",
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
     # --- Bedienteil / Systemebene (0x15) ------------------------------------
     AuromaticSensorDescription(
         key="system_flow", circuit="ui", message="FlowTemp",
-        status_field=1, name="Systemvorlauf", suggested_display_precision=1, **_TEMP,
+        status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="system_mode", circuit="ui", message="SystemModeStream1",
-        name="Systemzustand", device_class=SensorDeviceClass.ENUM,
+        device_class=SensorDeviceClass.ENUM,
         options=["heat", "off", "water", "cool"],
     ),
     AuromaticSensorDescription(
-        # Der Fuehler sitzt im Heizungsraum -- als Fuehrungsgroesse fuer das
-        # Haus ist er unbrauchbar, deshalb ist der Name bewusst eindeutig.
+        # Der Fühler sitzt im Heizungsraum -- als Führungsgröße für das Haus
+        # ist er unbrauchbar, deshalb ist der Name bewusst eindeutig.
         key="controller_room_temp", circuit="ui", message="RoomTemp",
-        status_field=1, name="Raumfuehler Heizungsraum",
-        entity_category=EntityCategory.DIAGNOSTIC,
+        status_field=1, entity_category=EntityCategory.DIAGNOSTIC,
         suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
         key="boiler_hours", circuit="ui", message="BoilerHoursB1",
-        name="Betriebsstunden Kessel",
         native_unit_of_measurement=UnitOfTime.HOURS,
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     AuromaticSensorDescription(
         key="yield_year", circuit="ui", message="YieldThisYear",
-        name="Solarertrag laufendes Jahr",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL,
-        value_fn=_sum_months, expose_raw=True,
+        # Der Zähler fällt im Januar auf null zurück. TOTAL_INCREASING erkennt
+        # genau das; TOTAL würde ohne last_reset falsch aufsummieren.
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        value_fn=sum_fields, expose_raw=True,
     ),
     AuromaticSensorDescription(
         key="yield_last_year", circuit="ui", message="YieldLastYear",
-        name="Solarertrag Vorjahr",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL,
-        value_fn=_sum_months, expose_raw=True,
+        # Kein Zähler, sondern ein feststehender Jahreswert: ohne state_class,
+        # damit er nicht als Verbrauch in die Langzeitstatistik einfließt.
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=sum_fields, expose_raw=True,
     ),
 )
 
 _MONTHS = (
-    "januar", "februar", "maerz", "april", "mai", "juni",
+    "januar", "februar", "märz", "april", "mai", "juni",
     "juli", "august", "september", "oktober", "november", "dezember",
 )
 
@@ -206,13 +202,13 @@ async def async_setup_entry(
     entry: AuromaticConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Sensoren anlegen -- nur fuer Register, die auch wirklich antworten."""
+    """Sensoren anlegen -- nur für Register, die auch wirklich antworten."""
     coordinator = entry.runtime_data
     async_add_entities(
         AuromaticSensor(coordinator, description, entry.entry_id)
         for description in SENSORS
-        # Nicht verbaute Fuehler melden "cutoff" und werden hier aussortiert,
-        # statt spaeter dauerhaft als "unavailable" herumzustehen.
+        # Nicht verbaute Fühler melden "cutoff" und werden hier aussortiert,
+        # statt später dauerhaft als "unavailable" herumzustehen.
         if coordinator.value(description.circuit, description.message,
                              description.field, description.status_field) is not None
     )
@@ -225,11 +221,14 @@ class AuromaticSensor(AuromaticEntity, SensorEntity):
 
     @property
     def native_value(self) -> StateType:
+        if self.entity_description.value_fn is not None:
+            # Die ganze Nachricht, nicht raw_value: das wäre bei der
+            # Ertragsstatistik nur das erste Feld und damit der Januar.
+            raw = self.raw_message
+            return self.entity_description.value_fn(raw) if raw is not None else None
         raw = self.raw_value
         if raw is None:
             return None
-        if self.entity_description.value_fn is not None:
-            return self.entity_description.value_fn(raw)
         if self.entity_description.device_class is SensorDeviceClass.ENUM:
             return raw
         try:
@@ -241,7 +240,7 @@ class AuromaticSensor(AuromaticEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, str] | None:
         if not self.entity_description.expose_raw:
             return None
-        raw = self.raw_value
+        raw = self.raw_message
         if raw is None:
             return None
         return dict(zip(_MONTHS, raw.split(";"), strict=False))

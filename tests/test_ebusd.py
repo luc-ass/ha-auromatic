@@ -70,7 +70,27 @@ RESPONSES: dict[str, list[str]] = {
     "cc": ["cc StatPowerOn = 204"],
 }
 
+# Der Regler uebernimmt einen geschriebenen Wert sofort, der Cache von ebusd
+# nicht: 'find' liefert bis zum naechsten Poll weiter den alten Stand. Genau
+# daran ist die Betriebsart in der Oberflaeche zurueckgesprungen. Der Fake
+# bildet das nach -- 'find' bleibt stur, 'read -f' geht an den Regler.
+# Die Register sind in der ebusd-Konfiguration als "r;w" deklariert: ein
+# Schreibvorgang auf 'OperatingMode' aendert genau den Wert, den 'OperatingMode'
+# auch liest. Die Set*-Nachrichten aus mcmode_inc.tsp sind nicht der Weg -- es
+# gibt sie im Heizkreis gar nicht.
+WRITABLE = frozenset({
+    "OperatingMode", "TempDesired", "TempDesiredLow", "HeatingCurve",
+    "OperatingMode2", "TempDesired2",
+    "SolEnableDiffTemp1", "SolDisableDiffTemp1",
+})
+device: dict[str, str] = {}
+
 writes: list[str] = []
+polls: list[str] = []
+restarted: list[int] = []
+scan_state: list[str] = ["finished"]
+poll_list: set[str] = set()
+commands: list[str] = []
 checks = 0
 
 
@@ -85,12 +105,52 @@ def check(label: str, condition: bool, detail: str = "") -> None:
 async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     while (raw := await reader.readline()):
         cmd = raw.decode().strip()
+        commands.append(cmd)
         if cmd == "info":
-            out = ["version: ebusd 26.1.26.1", "signal: acquired", "masters: 4"]
+            out = ["version: ebusd 26.1.26.1", "signal: acquired",
+                   f"scan: {scan_state[0]}", "masters: 4",
+                   f"poll: {len(poll_list)}", "update: 10"]
         elif cmd.startswith("find -c "):
             out = RESPONSES.get(cmd.split()[-1], [])
         elif cmd.startswith("write "):
             writes.append(cmd)
+            # write -c <circuit> <SetXxx> <wert>
+            _, _, circuit, message, value = cmd.split(maxsplit=4)
+            if message in WRITABLE:
+                device[f"{circuit} {message}"] = value
+            out = ["done"]
+        elif cmd.startswith("read -p "):
+            # read -p <prio> -m <maxage> -c <circuit> <nachricht>
+            parts = cmd.split()
+            polls.append(cmd)
+            circuit, message = parts[6], parts[7]
+            value = next(
+                (line.partition(" = ")[2] for line in RESPONSES.get(circuit, [])
+                 if line.startswith(f"{circuit} {message} = ")),
+                None,
+            )
+            # Nur was ebusd kennt, landet in der Poll-Liste.
+            if value is not None:
+                poll_list.add(f"{circuit} {message}")
+            out = [value] if value is not None else ["ERR: element not found"]
+        elif cmd.startswith("read -f -c "):
+            # read -f -c <circuit> <nachricht>
+            circuit, message = cmd.split()[3], cmd.split()[4]
+            cached = next(
+                (line.partition(" = ")[2] for line in RESPONSES.get(circuit, [])
+                 if line.startswith(f"{circuit} {message} = ")),
+                None,
+            )
+            value = device.get(f"{circuit} {message}", cached)
+            out = [value] if value is not None else ["ERR: element not found"]
+        elif cmd == "neustart" and not restarted:
+            # Bildet einen Neustart von ebusd nach: die Verbindung faellt weg,
+            # und mit ihr die Poll-Liste im Speicher von ebusd. Nur beim ersten
+            # Mal -- der Wiederholungsversuch des Clients soll durchkommen.
+            restarted.append(1)
+            writer.close()
+            return
+        elif cmd == "neustart":
             out = ["done"]
         else:
             out = ["ERR: command not found"]
@@ -118,6 +178,11 @@ async def run() -> None:
     check("Kaskaden-Dekodierfehler", "FlowTempDesiredB2" not in ui,
           "B2-B8 verworfen, B1 bleibt")
     check("Ertragsstatistik", ui["YieldThisYear"].count(";") == 11, "12 Monatswerte")
+    # Die Jahressumme braucht alle Felder. parse_field liefert nur das erste --
+    # damit stand der Januar als Jahresertrag in der Oberflaeche.
+    check("Jahressumme", ebusd.sum_fields(ui["YieldThisYear"]) == 603,
+          "603 kWh aus zwoelf Monaten, nicht 26 (Januar)")
+    check("Summe ohne Zahlen", ebusd.sum_fields("-;-") is None, "None statt Ausnahme")
 
     sc = await client.find("sc")
     check("Fuehler ohne Anschluss", pf(sc["Coll2Sensor"], status_index=1) is None,
@@ -139,9 +204,70 @@ async def run() -> None:
     check("Stoerungsfrei", has_error(hc["Currenterror"]) is False, "'-;-;-;-;-'")
     check("Stoerung erkannt", has_error("-;-;F.22;-;-") is True, "F.22")
 
-    await client.write("mc", "SetMode", "auto")
-    check("Schreibbefehl", writes == ["write -c mc SetMode auto"],
-          "Einzelfeld-Nachricht, nicht 'Mode'")
+    await client.write("mc", "OperatingMode", "auto")
+    check("Schreibbefehl", writes == ["write -c mc OperatingMode auto"],
+          "Einzelfeld-Register, nicht die Sammelnachricht 'Mode'")
+
+    # Der Fehler, um den es geht: nach dem Schreiben liefert der Cache
+    # unveraendert "off". Wer sich darauf verlaesst, stellt die Betriebsart in
+    # der Oberflaeche sofort wieder zurueck.
+    check("Cache bleibt alt", (await client.find("mc"))["OperatingMode"] == "off",
+          "'find' kennt den neuen Wert noch nicht")
+
+    del commands[:]
+    confirmed = await client.write_and_confirm("mc", "OperatingMode", "eco", "OperatingMode")
+    check("Nachlesen nach Schreiben", confirmed == "eco", "'eco' statt Cache-Wert 'off'")
+    check("Cache umgangen",
+          commands == ["write -c mc OperatingMode eco", "read -f -c mc OperatingMode"],
+          "genau ein zusaetzlicher Roundtrip, nur nach Benutzeraktion")
+
+    # Scheitert das Nachlesen, bleibt es beim quittierten Schreibvorgang --
+    # ein Lesefehler darf die Bedienung nicht als Fehlschlag aussehen lassen.
+    check("Nachlesen scheitert",
+          await client.write_and_confirm("hwc", "OperatingMode2", "auto", "GibtsNicht") is None,
+          "None statt Ausnahme")
+
+    # Die Poll-Liste von ebusd steht in keiner CSV -- sie ist Laufzeitzustand.
+    # Ohne diese Anmeldung holt ebusd das Register nie wieder vom Bus, und
+    # 'find' liefert stumm den letzten bekannten Wert.
+    del polls[:]
+    await client.set_poll_priority("sc", "Coll1Sensor", 1, 3600)
+    check("Poll-Anmeldung", polls == ["read -p 1 -m 3600 -c sc Coll1Sensor"],
+          "Prioritaet und Hoechstalter am read-Kommando")
+    check("Anmeldung ohne Buszugriff", "-f" not in polls[0],
+          "'-m' laesst den Zwischenspeicher antworten")
+
+    # Waehrend ebusd scannt, sind die Definitionen unvollstaendig -- eine
+    # Anmeldung in diesem Fenster scheitert fuer alles, was noch nicht dran
+    # war. Genau daran ist der erste Anlauf gescheitert.
+    check("Scan fertig erkannt", (await client.status())[0] is True, "scan: finished")
+    scan_state[0] = "running"
+    check("Scan laeuft erkannt", (await client.status())[0] is False, "scan: running")
+    scan_state[0] = "finished"
+
+    # Ein Register, das diese Anlage nicht kennt, darf die uebrigen vierzig
+    # nicht mitreissen -- der Koordinator faengt den Fehler je Register ab.
+    try:
+        await client.set_poll_priority("sc", "GibtsNicht", 1, 3600)
+        check("Unbekanntes Register", False, "haette scheitern muessen")
+    except ebusd.EbusdCommandError as err:
+        check("Unbekanntes Register", True, f"als Ausnahme: {err}")
+
+    # Die Groesse der Poll-Liste ist das Signal, an dem der Koordinator merkt,
+    # dass ein Rescan von ebusd die Anmeldung herausgeworfen hat.
+    check("Poll-Liste gemeldet", (await client.status())[1] == len(poll_list),
+          f"{len(poll_list)} Eintraege")
+    poll_list.clear()
+    check("Leere Poll-Liste erkannt", (await client.status())[1] == 0,
+          "nach einem Rescan faellt sie auf 0")
+
+    # Ein Neustart von ebusd reisst die Verbindung ab. Der naechste Befehl muss
+    # trotzdem durchkommen -- sonst faellt die ganze Integration aus, nur weil
+    # das Add-on neu gestartet wurde.
+    await client.command("neustart")
+    check("Neustart ueberbrueckt", (await client.find("hc"))["OperatingMode"] == "off",
+          "Befehl nach Abriss gelingt im zweiten Versuch")
+    check("Abriss war echt", restarted == [1], "Fake hat die Verbindung einmal fallen lassen")
 
     try:
         await client.command("bogus")

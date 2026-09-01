@@ -19,7 +19,7 @@ from .ebusd import EbusdClient, EbusdError
 
 _LOGGER = logging.getLogger(__name__)
 
-# Als Add-on laeuft ebusd in einem eigenen Container im selben Docker-Netz wie
+# Als Add-on läuft ebusd in einem eigenen Container im selben Docker-Netz wie
 # Home Assistant. Der Supervisor vergibt als Hostnamen den Add-on-Slug mit
 # Bindestrichen statt Unterstrichen -- genau der Name, der im Add-on-Terminal
 # im Prompt steht. ebusd meldet sich nicht per mDNS an, deshalb wird geraten
@@ -34,7 +34,7 @@ _STATIC_CANDIDATES: tuple[str, ...] = (
 
 
 async def _probe(host: str, port: int) -> str | None:
-    """Prueft, ob unter dieser Adresse ein ebusd antwortet."""
+    """Prüft, ob unter dieser Adresse ein ebusd antwortet."""
     client = EbusdClient(host, port, timeout=3.0)
     try:
         return await client.version()
@@ -48,7 +48,7 @@ async def _addon_hostnames(hass) -> list[str]:
     """Hostnamen aus der Add-on-Liste des Supervisors ableiten.
 
     Nur auf Home Assistant OS und Supervised vorhanden; auf allen anderen
-    Installationsarten schlaegt der Import fehl und es bleibt beim Raten.
+    Installationsarten schlägt der Import fehl und es bleibt beim Raten.
     """
     try:
         from homeassistant.components.hassio import get_addons_info, is_hassio
@@ -57,7 +57,7 @@ async def _addon_hostnames(hass) -> list[str]:
             return []
         addons = get_addons_info(hass) or {}
     except Exception as err:  # noqa: BLE001 - Supervisor ist optional
-        _LOGGER.debug("Add-on-Liste nicht verfuegbar: %s", err)
+        _LOGGER.debug("Add-on-Liste nicht verfügbar: %s", err)
         return []
     return [slug.replace("_", "-") for slug in addons if "ebusd" in slug.lower()]
 
@@ -82,7 +82,7 @@ STEP_USER = vol.Schema(
 
 
 class AuromaticConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Fuehrt durch die Ersteinrichtung."""
+    """Führt durch die Ersteinrichtung."""
 
     VERSION = 1
 
@@ -90,7 +90,7 @@ class AuromaticConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is None:
-            # Vorschlag suchen, damit im Normalfall nur noch bestaetigt werden muss.
+            # Vorschlag suchen, damit im Normalfall nur noch bestätigt werden muss.
             found = await _find_ebusd(self.hass, DEFAULT_PORT)
             schema = self.add_suggested_values_to_schema(
                 STEP_USER, {CONF_HOST: found} if found else {}
@@ -121,7 +121,7 @@ class AuromaticConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class AuromaticOptionsFlow(OptionsFlow):
-    """Nachtraeglich das Abrufintervall anpassen."""
+    """Nachträglich das Abrufintervall anpassen."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:

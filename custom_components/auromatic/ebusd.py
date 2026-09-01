@@ -1,7 +1,7 @@
-"""Asynchroner Client fuer die Kommandoschnittstelle von ebusd (Port 8888).
+"""Asynchroner Client für die Kommandoschnittstelle von ebusd (Port 8888).
 
 Bewusst kein MQTT: ebusd beantwortet Schreibbefehle auf diesem Weg synchron,
-Fehler kommen also als Rueckgabewert zurueck statt im Nichts zu verschwinden.
+Fehler kommen also als Rückgabewert zurück statt im Nichts zu verschwinden.
 """
 
 from __future__ import annotations
@@ -11,14 +11,14 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 
-# Werte, die ebusd fuer "kein gueltiger Messwert" liefert. Sie muessen
+# Werte, die ebusd für "kein gültiger Messwert" liefert. Sie müssen
 # ausgefiltert werden, sonst landen leere Schreibnachrichten und Dekodierfehler
-# als Entitaeten in Home Assistant.
+# als Entitäten in Home Assistant.
 _NO_VALUE_PREFIXES = ("no data stored", "ERR:")
 
-# ebusd haengt an Fuehlerwerte ein Statusfeld: "68.69;ok" oder "-19.38;cutoff".
-# Nur "ok" ist ein angeschlossener Fuehler -- bei "cutoff" waere der
-# Zahlenwert reiner Muell und darf nicht als Messwert erscheinen.
+# ebusd hängt an Fühlerwerte ein Statusfeld: "68.69;ok" oder "-19.38;cutoff".
+# Nur "ok" ist ein angeschlossener Fühler -- bei "cutoff" wäre der
+# Zahlenwert reiner Müll und darf nicht als Messwert erscheinen.
 VALID_SENSOR_STATES = frozenset({"ok"})
 
 
@@ -31,7 +31,7 @@ class EbusdCommandError(EbusdError):
 
 
 class EbusdClient:
-    """Haelt eine persistente Verbindung zu ebusd und serialisiert Befehle."""
+    """Hält eine persistente Verbindung zu ebusd und serialisiert Befehle."""
 
     def __init__(self, host: str, port: int, timeout: float = 10.0) -> None:
         self._host = host
@@ -42,7 +42,7 @@ class EbusdClient:
         self._lock = asyncio.Lock()
 
     async def close(self) -> None:
-        """Verbindung schliessen und Ressourcen freigeben."""
+        """Verbindung schließen und Ressourcen freigeben."""
         async with self._lock:
             await self._disconnect()
 
@@ -53,7 +53,7 @@ class EbusdClient:
         writer.close()
         try:
             await writer.wait_closed()
-        except (OSError, asyncio.TimeoutError):  # pragma: no cover - Aufraeumpfad
+        except (OSError, asyncio.TimeoutError):  # pragma: no cover - Aufräumpfad
             pass
 
     async def _connect(self) -> None:
@@ -65,11 +65,11 @@ class EbusdClient:
             raise EbusdError(f"Verbindung zu {self._host}:{self._port} fehlgeschlagen: {err}") from err
 
     async def command(self, cmd: str) -> list[str]:
-        """Einen Befehl senden und die Antwortzeilen zurueckgeben.
+        """Einen Befehl senden und die Antwortzeilen zurückgeben.
 
-        ebusd schliesst jede Antwort mit einer Leerzeile ab. Bricht die
+        ebusd schließt jede Antwort mit einer Leerzeile ab. Bricht die
         Verbindung weg, wird genau einmal neu verbunden und wiederholt --
-        ein Adapter-Neustart soll keine Entitaeten auf "unavailable" werfen.
+        ein Adapter-Neustart soll keine Entitäten auf "unavailable" werfen.
         """
         async with self._lock:
             for attempt in (1, 2):
@@ -83,7 +83,7 @@ class EbusdClient:
                     await self._disconnect()
                     if attempt == 2:
                         raise EbusdError(f"Befehl '{cmd}' fehlgeschlagen: {err}") from err
-                    _LOGGER.debug("Verbindung verloren, neuer Versuch fuer '%s'", cmd)
+                    _LOGGER.debug("Verbindung verloren, neuer Versuch für '%s'", cmd)
             raise EbusdError("unerreichbar")  # pragma: no cover
 
     async def _roundtrip(self, cmd: str) -> list[str]:
@@ -105,6 +105,46 @@ class EbusdClient:
             raise EbusdCommandError(lines[0])
         return lines
 
+    async def set_poll_priority(self, circuit: str, message: str, priority: int, maxage: int) -> None:
+        """Eine Nachricht in die Poll-Liste von ebusd eintragen.
+
+        Die Liste ist Laufzeitzustand von ebusd und steht in keiner CSV; ohne
+        diesen Eintrag holt ebusd das Register nie wieder vom Bus und `find`
+        liefert stumm den letzten bekannten Wert. Siehe poll.py.
+
+        '-m' hält den Eintrag billig: liegt ein hinreichend junger Wert im
+        Zwischenspeicher, antwortet ebusd daraus und der Bus bleibt unberührt.
+        Nur beim allerersten Mal -- oder nach einem ebusd-Neustart -- kostet es
+        einen Roundtrip, und der ist dann auch gewollt.
+        """
+        await self.command(f"read -p {priority} -m {maxage} -c {circuit} {message}")
+
+    async def status(self) -> tuple[bool, int]:
+        """(Scan abgeschlossen, Anzahl Nachrichten in der Poll-Liste).
+
+        Beides steht in derselben Antwort auf 'info', beides wird gebraucht:
+
+        *Scan-Zustand*, weil ebusd die CSV je Adresse erst beim Scannen lädt.
+        Eine Poll-Anmeldung in diesem Fenster scheitert mit
+        'element not found' für alles, was noch nicht an der Reihe war -- an
+        der Anlage beobachtet: 0x15 und 0x25 waren geladen, 0x26 aufwärts
+        nicht, und genau deren Register fielen aus.
+
+        *Größe der Poll-Liste*, weil ein Rescan die betroffenen Nachrichten
+        stillschweigend daraus entfernt (`MessageMap::remove` löscht das
+        Nachrichtenobjekt und mit ihm den Listeneintrag). Die Liste ist damit
+        das einzige verlässliche Signal dafür, dass neu angemeldet werden muss
+        -- ein Zeitplan trifft den Zeitpunkt nie.
+        """
+        scan_done, polled = False, 0
+        for line in await self.command("info"):
+            key, _, value = line.partition(":")
+            if key == "scan":
+                scan_done = value.strip() == "finished"
+            elif key == "poll":
+                polled = int(value.strip() or 0)
+        return scan_done, polled
+
     async def version(self) -> str:
         """Versionsstring von ebusd -- dient auch als Verbindungstest."""
         lines = await self.command("info")
@@ -117,7 +157,7 @@ class EbusdClient:
         """Alle zwischengespeicherten Werte eines Kreises holen.
 
         Ein Roundtrip pro Kreis statt einer Leseanfrage je Register: 'find'
-        liefert den Cache von ebusd, erzeugt also keinen zusaetzlichen
+        liefert den Cache von ebusd, erzeugt also keinen zusätzlichen
         Busverkehr. Der eBUS ist langsam, das ist der entscheidende Punkt.
         """
         values: dict[str, str] = {}
@@ -130,26 +170,74 @@ class EbusdClient:
             value = value.strip()
             if not value or value.startswith(_NO_VALUE_PREFIXES) or value.startswith("("):
                 continue
-            # Lese- und Schreibvariante heissen gleich; die Schreibvariante hat
+            # Lese- und Schreibvariante heißen gleich; die Schreibvariante hat
             # nie einen Wert und wurde oben bereits aussortiert.
             values.setdefault(key, value)
         return values
 
-    async def write(self, circuit: str, message: str, value: str) -> None:
-        """Einen Wert ueber eine dedizierte Set*-Nachricht schreiben.
+    async def read(self, circuit: str, message: str) -> str | None:
+        """Eine einzelne Nachricht frisch vom Bus lesen.
 
-        Ausschliesslich Einzelfeld-Nachrichten verwenden. Die Sammelnachricht
-        'Mode' enthaelt unter anderem die Estrichtrocknung und wird nie
+        '-f' umgeht den Cache von ebusd. Das kostet einen Roundtrip auf dem
+        langsamen Bus und ist deshalb nur nach einer Benutzeraktion vertretbar,
+        niemals im Abrufzyklus -- dort bleibt es bei einem 'find' je Kreis.
+        """
+        lines = await self.command(f"read -f -c {circuit} {message}")
+        value = lines[0].strip() if lines else ""
+        if not value or value.startswith(_NO_VALUE_PREFIXES):
+            return None
+        return value
+
+    async def write(self, circuit: str, message: str, value: str) -> None:
+        """Einen Wert über eine dedizierte Set*-Nachricht schreiben.
+
+        Ausschließlich Einzelfeld-Nachrichten verwenden. Die Sammelnachricht
+        'Mode' enthält unter anderem die Estrichtrocknung und wird nie
         beschrieben.
         """
         await self.command(f"write -c {circuit} {message} {value}")
 
+    async def write_and_confirm(
+        self, circuit: str, write_message: str, value: str, read_message: str
+    ) -> str | None:
+        """Schreiben und den Lesewert unmittelbar danach frisch holen.
+
+        'find' beantwortet ebusd aus dem Cache. Ein Schreibbefehl aktualisiert
+        dort nur die Set*-Nachricht; die zugehörige Lesenachricht bleibt bis
+        zum nächsten Poll auf dem alten Stand. Ohne dieses Nachlesen zeigt die
+        Oberfläche direkt nach dem Schalten wieder den vorherigen Wert.
+
+        Ein Schreibfehler wird durchgereicht, ein fehlgeschlagenes Nachlesen
+        nicht: geschrieben wurde dann trotzdem.
+        """
+        await self.write(circuit, write_message, value)
+        try:
+            return await self.read(circuit, read_message)
+        except EbusdError as err:
+            _LOGGER.debug("Nachlesen von %s %s fehlgeschlagen: %s", circuit, read_message, err)
+            return None
+
+
+def sum_fields(raw: str | None) -> int | None:
+    """Alle Felder einer mehrfeldrigen Nachricht addieren.
+
+    Die Ertragsstatistik steht als zwölf Monatswerte in einer einzigen
+    Nachricht ('26;38;157;...'), gefragt ist die Jahressumme. parse_field
+    liefert hier nur das erste Feld -- also den Januar.
+    """
+    if raw is None:
+        return None
+    try:
+        return sum(int(part) for part in raw.split(";"))
+    except ValueError:
+        return None
+
 
 def parse_field(raw: str | None, index: int = 0, status_index: int | None = None) -> str | None:
-    """Ein Feld aus einem ebusd-Wert herausloesen und auf Gueltigkeit pruefen.
+    """Ein Feld aus einem ebusd-Wert herauslösen und auf Gültigkeit prüfen.
 
-    Mehrfeldrige Werte sind semikolongetrennt. Ein "-" steht fuer einen Zaehler
-    ohne Inhalt, ein Statusfeld ungleich "ok" fuer einen fehlenden Fuehler --
+    Mehrfeldrige Werte sind semikolongetrennt. Ein "-" steht für einen Zähler
+    ohne Inhalt, ein Statusfeld ungleich "ok" für einen fehlenden Fühler --
     beides ergibt keinen Messwert, sondern None.
     """
     if raw is None:

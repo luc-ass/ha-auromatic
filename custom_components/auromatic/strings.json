@@ -2,28 +2,176 @@
   "config": {
     "step": {
       "user": {
-        "title": "auroMATIC über ebusd verbinden",
-        "description": "Adresse des ebusd-Dienstes, nicht die des eBUS-Adapters. Läuft ebusd als Add-on, ist es der Hostname aus dem Add-on-Terminal (im Prompt vor dem Doppelpunkt), etwa \"2ad9b828-ebusd\". Ein gefundener Vorschlag ist bereits eingetragen.",
+        "title": "Connect auroMATIC via ebusd",
+        "description": "Address of the ebusd service, not of the eBUS adapter. When ebusd runs as an add-on, use the hostname shown in the add-on terminal prompt, e.g. \"2ad9b828-ebusd\". A suggestion is pre-filled if one was found.",
         "data": {
           "host": "Host",
-          "port": "Port der Kommandoschnittstelle"
+          "port": "Command interface port"
         }
       }
     },
     "error": {
-      "cannot_connect": "ebusd antwortet nicht. Läuft der Dienst, und stimmt der Port?"
+      "cannot_connect": "ebusd does not answer. Is the service running, and is the port correct?"
     },
     "abort": {
-      "already_configured": "Dieser ebusd ist bereits eingebunden."
+      "already_configured": "This ebusd is already set up."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Abrufintervall",
-        "description": "Wie oft der Zwischenspeicher von ebusd ausgelesen wird. Erzeugt keinen zusätzlichen Busverkehr.",
+        "title": "Polling interval",
+        "description": "How often the ebusd cache is read. Causes no additional bus traffic.",
         "data": {
-          "scan_interval": "Intervall in Sekunden"
+          "scan_interval": "Interval in seconds"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "outside_temp": {
+        "name": "Outside temperature"
+      },
+      "sum_flow": {
+        "name": "Common flow temperature"
+      },
+      "flow_temp": {
+        "name": "Flow temperature"
+      },
+      "flow_desired": {
+        "name": "Target flow temperature"
+      },
+      "flow_max": {
+        "name": "Maximum flow temperature"
+      },
+      "mode_state": {
+        "name": "Controller state",
+        "state": {
+          "auto": "Time program",
+          "on": "Continuous",
+          "eco": "Eco",
+          "low": "Setback",
+          "off": "Off",
+          "disabled": "Disabled"
+        }
+      },
+      "room_offset": {
+        "name": "Room temperature offset"
+      },
+      "storage_temp": {
+        "name": "Cylinder temperature"
+      },
+      "collector_1": {
+        "name": "Collector"
+      },
+      "collector_2": {
+        "name": "Collector 2"
+      },
+      "storage_1": {
+        "name": "Cylinder top"
+      },
+      "storage_2": {
+        "name": "Cylinder middle"
+      },
+      "storage_3": {
+        "name": "Cylinder 3"
+      },
+      "storage_4": {
+        "name": "Cylinder bottom"
+      },
+      "backflow": {
+        "name": "Solar return"
+      },
+      "yield_sensor": {
+        "name": "Yield sensor"
+      },
+      "pump_hours": {
+        "name": "Collector pump operating hours"
+      },
+      "system_flow": {
+        "name": "System flow temperature"
+      },
+      "system_mode": {
+        "name": "System state",
+        "state": {
+          "heat": "Heating",
+          "off": "Off",
+          "water": "Hot water",
+          "cool": "Cooling"
+        }
+      },
+      "controller_room_temp": {
+        "name": "Controller room sensor"
+      },
+      "boiler_hours": {
+        "name": "Boiler operating hours"
+      },
+      "yield_year": {
+        "name": "Solar yield this year"
+      },
+      "yield_last_year": {
+        "name": "Solar yield last year"
+      }
+    },
+    "binary_sensor": {
+      "error": {
+        "name": "Fault"
+      },
+      "pump": {
+        "name": "Collector pump"
+      },
+      "teleswitch": {
+        "name": "Telephone switch"
+      },
+      "frost_protection": {
+        "name": "Solar frost protection"
+      },
+      "collector_protection": {
+        "name": "Collector protection"
+      }
+    },
+    "select": {
+      "mode": {
+        "name": "Operating mode",
+        "state": {
+          "auto": "Time program",
+          "on": "Continuous",
+          "eco": "Eco",
+          "low": "Setback",
+          "off": "Off"
+        }
+      }
+    },
+    "number": {
+      "temp_desired": {
+        "name": "Day room setpoint"
+      },
+      "temp_desired_low": {
+        "name": "Setback room setpoint"
+      },
+      "heating_curve": {
+        "name": "Heating curve"
+      },
+      "sol_enable_diff": {
+        "name": "Solar switch-on differential"
+      },
+      "sol_disable_diff": {
+        "name": "Solar switch-off differential"
+      }
+    },
+    "water_heater": {
+      "hot_water": {
+        "state_attributes": {
+          "operation_mode": {
+            "state": {
+              "auto": "Time program",
+              "on": "Continuous",
+              "eco": "Eco",
+              "low": "Setback",
+              "off": "Off"
+            }
+          }
         }
       }
     }

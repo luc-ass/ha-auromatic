@@ -1,4 +1,4 @@
-"""Zustandsmeldungen: Stoerungen und Schalter des Reglers."""
+"""Zustandsmeldungen: Störungen und Schalter des Reglers."""
 
 from __future__ import annotations
 
@@ -23,14 +23,26 @@ def _is_on(raw: str) -> bool:
     return raw.split(";")[0] == "on"
 
 
-def _has_error(raw: str) -> bool:
-    """Der Fehlerspeicher fuehrt fuenf Codes. '-;-;-;-;-' heisst stoerungsfrei.
+def _is_running(raw: str) -> bool:
+    """Die Einschaltdauer der Kollektorpumpe ist an dieser Anlage kein
+    Modulationsgrad: der Regler meldet 100 für ein und 0 für aus. Als
+    Prozentsensor stand dort eine Kennzahl, die es gar nicht gibt.
+    """
+    return raw.split(";")[0].strip() not in ("", "-", "0")
 
-    Bewusst ueber den Gesamtwert statt ueber ein Einzelfeld: ein einzelnes '-'
-    ist fuer sich genommen kein Messwert, die Kombination aber sehr wohl eine
+
+def _has_error(raw: str) -> bool:
+    """Der Fehlerspeicher führt fünf Codes. '-;-;-;-;-' heißt störungsfrei.
+
+    Bewusst über den Gesamtwert statt über ein Einzelfeld: ein einzelnes '-'
+    ist für sich genommen kein Messwert, die Kombination aber sehr wohl eine
     Aussage.
     """
     return any(part.strip() not in ("", "-") for part in raw.split(";"))
+
+
+# Nur lesend -- alle Werte stammen aus einem Abruf des Koordinators.
+PARALLEL_UPDATES = 0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -43,20 +55,23 @@ class AuromaticBinaryDescription(BinarySensorEntityDescription, CircuitMixin):
 BINARY_SENSORS: tuple[AuromaticBinaryDescription, ...] = (
     AuromaticBinaryDescription(
         key="error", circuit="hc", message="Currenterror",
-        name="Stoerung", device_class=BinarySensorDeviceClass.PROBLEM,
-        is_on_fn=_has_error,
+        device_class=BinarySensorDeviceClass.PROBLEM, is_on_fn=_has_error,
+    ),
+    AuromaticBinaryDescription(
+        key="pump", circuit="sc", message="SolCollPumpED1",
+        device_class=BinarySensorDeviceClass.RUNNING, is_on_fn=_is_running,
     ),
     AuromaticBinaryDescription(
         key="teleswitch", circuit="sc", message="TeleSwitch",
-        name="Telefonschalter", entity_category=EntityCategory.DIAGNOSTIC,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     AuromaticBinaryDescription(
         key="frost_protection", circuit="sc", message="FrostProtectionEnabled",
-        name="Frostschutz Solar", entity_category=EntityCategory.DIAGNOSTIC,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     AuromaticBinaryDescription(
         key="collector_protection", circuit="sc", message="SolProtection",
-        name="Kollektorschutz", entity_category=EntityCategory.DIAGNOSTIC,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 )
 
@@ -75,7 +90,7 @@ async def async_setup_entry(
 
 
 class AuromaticBinarySensor(AuromaticEntity, BinarySensorEntity):
-    """Ein Zustand mit zwei Auspraegungen."""
+    """Ein Zustand mit zwei Ausprägungen."""
 
     entity_description: AuromaticBinaryDescription
 

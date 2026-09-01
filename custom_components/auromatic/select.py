@@ -15,9 +15,13 @@ from .ebusd import EbusdError
 from .entity import AuromaticEntity, CircuitMixin
 
 
+# Schreibend: der eBUS ist langsam, Befehle laufen nacheinander.
+PARALLEL_UPDATES = 1
+
+
 @dataclass(frozen=True, kw_only=True)
 class AuromaticSelectDescription(SelectEntityDescription, CircuitMixin):
-    """Lese- und Schreibnachricht heissen beim Regler nicht gleich."""
+    """Betriebsart eines Kreises samt zugehöriger Schreibnachricht."""
 
     write_message: str
 
@@ -25,11 +29,11 @@ class AuromaticSelectDescription(SelectEntityDescription, CircuitMixin):
 SELECTS: tuple[AuromaticSelectDescription, ...] = (
     AuromaticSelectDescription(
         key="mode", circuit="hc", message="OperatingMode",
-        write_message="SetMode", name="Betriebsart",
+        write_message="OperatingMode",
     ),
     AuromaticSelectDescription(
         key="mode", circuit="mc", message="OperatingMode",
-        write_message="SetMode", name="Betriebsart",
+        write_message="OperatingMode",
     ),
 )
 
@@ -56,20 +60,23 @@ class AuromaticSelect(AuromaticEntity, SelectEntity):
     @property
     def current_option(self) -> str | None:
         raw = self.raw_value
-        # "disabled" ist ein gueltiger Reglerzustand, aber keine Auswahl --
-        # in dem Fall lieber nichts anzeigen als eine Option vorzutaeuschen.
+        # "disabled" ist ein gültiger Reglerzustand, aber keine Auswahl --
+        # in dem Fall lieber nichts anzeigen als eine Option vorzutäuschen.
+        # Ablesbar bleibt er über den Diagnosesensor "mode_state".
         return raw if raw in MODE_OPTIONS else None
 
     async def async_select_option(self, option: str) -> None:
-        """Betriebsart ueber die Einzelfeld-Nachricht SetMode schreiben.
+        """Betriebsart über das Einzelfeld-Register OperatingMode schreiben.
 
-        Nie ueber die Sammelnachricht 'Mode': die enthaelt auch die Felder der
-        Estrichtrocknung, und die will bei einer verlegten Fussbodenheizung
-        niemand versehentlich setzen.
+        Nie über die Sammelnachricht 'Mode': die enthält auch die Felder der
+        Estrichtrocknung, und die will bei einer verlegten Fußbodenheizung
+        niemand versehentlich setzen. 'OperatingMode' ist ein eigenes Register
+        (PBSB 2B00) mit genau einem Feld und rührt an keinem Nachbarwert.
         """
         description = self.entity_description
         try:
-            await self.coordinator.client.write(description.circuit, description.write_message, option)
+            await self.coordinator.async_write(
+                description.circuit, description.write_message, option, description.message
+            )
         except EbusdError as err:
             raise HomeAssistantError(f"Betriebsart konnte nicht gesetzt werden: {err}") from err
-        await self.coordinator.async_request_refresh()

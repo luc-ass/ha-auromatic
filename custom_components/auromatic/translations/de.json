@@ -27,5 +27,153 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "outside_temp": {
+        "name": "Außentemperatur"
+      },
+      "sum_flow": {
+        "name": "Sammelvorlauf"
+      },
+      "flow_temp": {
+        "name": "Vorlauf"
+      },
+      "flow_desired": {
+        "name": "Vorlauf Soll"
+      },
+      "flow_max": {
+        "name": "Vorlauf Maximum"
+      },
+      "mode_state": {
+        "name": "Reglerzustand",
+        "state": {
+          "auto": "Zeitprogramm",
+          "on": "Dauerbetrieb",
+          "eco": "Eco",
+          "low": "Absenkung",
+          "off": "Aus",
+          "disabled": "Deaktiviert"
+        }
+      },
+      "room_offset": {
+        "name": "Raumtemperatur-Korrektur"
+      },
+      "storage_temp": {
+        "name": "Speichertemperatur"
+      },
+      "collector_1": {
+        "name": "Kollektor"
+      },
+      "collector_2": {
+        "name": "Kollektor 2"
+      },
+      "storage_1": {
+        "name": "Speicher oben"
+      },
+      "storage_2": {
+        "name": "Speicher Mitte"
+      },
+      "storage_3": {
+        "name": "Speicher 3"
+      },
+      "storage_4": {
+        "name": "Speicher unten"
+      },
+      "backflow": {
+        "name": "Solarrücklauf"
+      },
+      "yield_sensor": {
+        "name": "Ertragsfühler"
+      },
+      "pump_hours": {
+        "name": "Betriebsstunden Kollektorpumpe"
+      },
+      "system_flow": {
+        "name": "Systemvorlauf"
+      },
+      "system_mode": {
+        "name": "Systemzustand",
+        "state": {
+          "heat": "Heizen",
+          "off": "Aus",
+          "water": "Warmwasser",
+          "cool": "Kühlen"
+        }
+      },
+      "controller_room_temp": {
+        "name": "Raumfühler Heizungsraum"
+      },
+      "boiler_hours": {
+        "name": "Betriebsstunden Kessel"
+      },
+      "yield_year": {
+        "name": "Solarertrag laufendes Jahr"
+      },
+      "yield_last_year": {
+        "name": "Solarertrag Vorjahr"
+      }
+    },
+    "binary_sensor": {
+      "error": {
+        "name": "Störung"
+      },
+      "pump": {
+        "name": "Kollektorpumpe"
+      },
+      "teleswitch": {
+        "name": "Telefonschalter"
+      },
+      "frost_protection": {
+        "name": "Frostschutz Solar"
+      },
+      "collector_protection": {
+        "name": "Kollektorschutz"
+      }
+    },
+    "select": {
+      "mode": {
+        "name": "Betriebsart",
+        "state": {
+          "auto": "Zeitprogramm",
+          "on": "Dauerbetrieb",
+          "eco": "Eco",
+          "low": "Absenkung",
+          "off": "Aus"
+        }
+      }
+    },
+    "number": {
+      "temp_desired": {
+        "name": "Raumsoll Tag"
+      },
+      "temp_desired_low": {
+        "name": "Raumsoll Absenkung"
+      },
+      "heating_curve": {
+        "name": "Heizkurve"
+      },
+      "sol_enable_diff": {
+        "name": "Solar Einschaltdifferenz"
+      },
+      "sol_disable_diff": {
+        "name": "Solar Ausschaltdifferenz"
+      }
+    },
+    "water_heater": {
+      "hot_water": {
+        "state_attributes": {
+          "operation_mode": {
+            "state": {
+              "auto": "Zeitprogramm",
+              "on": "Dauerbetrieb",
+              "eco": "Eco",
+              "low": "Absenkung",
+              "off": "Aus"
+            }
+          }
+        }
+      }
+    }
   }
 }

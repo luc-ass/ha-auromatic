@@ -1,4 +1,4 @@
-"""Vaillant auroMATIC 620/3 ueber ebusd."""
+"""Vaillant auroMATIC 620/3 über ebusd."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ PLATFORMS: list[Platform] = [
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: AuromaticConfigEntry) -> bool:
-    """Integration fuer einen konfigurierten ebusd einrichten."""
+    """Integration für einen konfigurierten ebusd einrichten."""
     client = EbusdClient(entry.data[CONF_HOST], entry.data.get(CONF_PORT, DEFAULT_PORT))
 
     try:
@@ -36,11 +36,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuromaticConfigEntry) ->
         client,
         entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
     )
-    await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
 
-    # Der Regler selbst als uebergeordnetes Geraet -- die Kreise haengen per
-    # via_device daran, damit die Geraeteseite die Bus-Struktur abbildet.
+    # Vor dem ersten Abruf anmelden, nicht danach: 'read -m' liefert bei leerem
+    # Zwischenspeicher frisch vom Bus und füllt ihn damit gleich mit. Ohne das
+    # sähe der erste Abruf nach einem ebusd-Neustart einen leeren Cache -- und
+    # Entitäten entstehen nur dort, wo beim Setup ein Wert vorliegt.
+    # Danach hält der Koordinator die Anmeldung selbst nach: er prüft bei jedem
+    # Abruf, ob unsere Register noch in der Poll-Liste von ebusd stehen.
+    await coordinator.async_apply_poll()
+    await coordinator.async_config_entry_first_refresh()
+
+    # Der Regler selbst als übergeordnetes Gerät -- die Kreise hängen per
+    # via_device daran, damit die Geräteseite die Bus-Struktur abbildet.
     dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
@@ -48,7 +56,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuromaticConfigEntry) ->
         name="auroMATIC 620/3",
         model="auroMATIC 620/3",
         sw_version=version,
-        configuration_url=f"http://{entry.data[CONF_HOST]}",
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

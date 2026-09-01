@@ -1,4 +1,4 @@
-"""Warmwasserspeicher als eigene Entitaet statt als lose Sensoren."""
+"""Warmwasserspeicher als eigene Entität statt als lose Sensoren."""
 
 from __future__ import annotations
 
@@ -17,6 +17,9 @@ from .const import MODE_OPTIONS
 from .coordinator import AuromaticConfigEntry
 from .ebusd import EbusdError
 from .entity import AuromaticEntity, CircuitDescription
+
+# Schreibend: der eBUS ist langsam, Befehle laufen nacheinander.
+PARALLEL_UPDATES = 1
 
 DESCRIPTION = CircuitDescription(
     key="hot_water", circuit="hwc", message="Storage1Sensor2",
@@ -43,6 +46,8 @@ class AuromaticWaterHeater(AuromaticEntity, WaterHeaterEntity):
     _attr_operation_list = MODE_OPTIONS
     _attr_min_temp = 35.0
     _attr_max_temp = 70.0
+    # Das Register TempDesired2 ist vom Typ "temp1" und löst 0,5 K auf.
+    _attr_target_temperature_step = 0.5
     _attr_supported_features = (
         WaterHeaterEntityFeature.TARGET_TEMPERATURE
         | WaterHeaterEntityFeature.OPERATION_MODE
@@ -67,14 +72,16 @@ class AuromaticWaterHeater(AuromaticEntity, WaterHeaterEntity):
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is None:
             return
-        await self._write("SetTempDesired", f"{temperature:.1f}")
+        await self._write("TempDesired2", f"{temperature:.1f}", "TempDesired2")
 
     async def async_set_operation_mode(self, operation_mode: str) -> None:
-        await self._write("SetMode", operation_mode)
+        await self._write("OperatingMode2", operation_mode, "OperatingMode2")
 
-    async def _write(self, message: str, value: str) -> None:
+    async def _write(self, message: str, value: str, read_message: str) -> None:
+        """Schreiben geht auf das r;w-Register selbst, nicht auf die
+        Sammelnachricht 'Mode' -- die trägt beim Warmwasser die Zirkulation
+        und den Nachtabsenkungszustand im selben Telegramm."""
         try:
-            await self.coordinator.client.write("hwc", message, value)
+            await self.coordinator.async_write("hwc", message, value, read_message)
         except EbusdError as err:
             raise HomeAssistantError(f"Warmwasser konnte nicht gesetzt werden: {err}") from err
-        await self.coordinator.async_request_refresh()
