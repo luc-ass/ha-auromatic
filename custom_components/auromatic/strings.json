@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "auroMATIC über ebusd verbinden",
+        "description": "Adresse des ebusd-Dienstes, nicht die des eBUS-Adapters. Läuft ebusd als Add-on, ist es der Hostname aus dem Add-on-Terminal (im Prompt vor dem Doppelpunkt), etwa \"2ad9b828-ebusd\". Ein gefundener Vorschlag ist bereits eingetragen.",
+        "data": {
+          "host": "Host",
+          "port": "Port der Kommandoschnittstelle"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "ebusd antwortet nicht. Läuft der Dienst, und stimmt der Port?"
+    },
+    "abort": {
+      "already_configured": "Dieser ebusd ist bereits eingebunden."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Abrufintervall",
+        "description": "Wie oft der Zwischenspeicher von ebusd ausgelesen wird. Erzeugt keinen zusätzlichen Busverkehr.",
+        "data": {
+          "scan_interval": "Intervall in Sekunden"
+        }
+      }
+    }
+  }
+}

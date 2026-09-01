@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtuelle Umgebungen
+.venv/
+venv/
+
+# Editoren
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
+
+# Lokale Mitschnitte von ebusd, falls beim Debuggen abgelegt
+*.ebusd.log
+ebusctl-*.txt

@@ -1,0 +1,16 @@
+{
+  "domain": "auromatic",
+  "name": "Vaillant auroMATIC (ebusd)",
+  "version": "0.1.0",
+  "documentation": "https://github.com/lucas/ha-auromatic",
+  "issue_tracker": "https://github.com/lucas/ha-auromatic/issues",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "requirements": [],
+  "iot_class": "local_polling",
+  "integration_type": "hub",
+  "after_dependencies": [
+    "hassio"
+  ]
+}
