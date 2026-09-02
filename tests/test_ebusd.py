@@ -102,6 +102,10 @@ def check(label: str, condition: bool, detail: str = "") -> None:
     print(f"  {label:.<30} {detail}")
 
 
+# Leseanfragen mit Höchstalter: die Register außerhalb der Poll-Warteschlange.
+cached_reads: list[str] = []
+
+
 async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     while (raw := await reader.readline()):
         cmd = raw.decode().strip()
@@ -132,6 +136,19 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             # Nur was ebusd kennt, landet in der Poll-Liste.
             if value is not None:
                 poll_list.add(f"{circuit} {message}")
+            out = [value] if value is not None else ["ERR: element not found"]
+        elif cmd.startswith("read -m ") and " -c " in cmd:
+            # read -m <hoechstalter> -c <circuit> <nachricht>: ebusd antwortet
+            # aus dem Zwischenspeicher, solange der Wert jung genug ist. Der
+            # Fake hat immer einen -- genau der Fall, der keinen Bus kostet.
+            parts = cmd.split()
+            circuit, message = parts[4], parts[5]
+            cached_reads.append(cmd)
+            value = next(
+                (line.partition(" = ")[2] for line in RESPONSES.get(circuit, [])
+                 if line.startswith(f"{circuit} {message} = ")),
+                None,
+            )
             out = [value] if value is not None else ["ERR: element not found"]
         elif cmd.startswith("read -f -c "):
             # read -f -c <circuit> <nachricht>
@@ -260,6 +277,43 @@ async def run() -> None:
     poll_list.clear()
     check("Leere Poll-Liste erkannt", (await client.status())[1] == 0,
           "nach einem Rescan faellt sie auf 0")
+
+    # Zwei Register stehen nicht in der Warteschlange, sondern werden vom
+    # Koordinator selbst geholt -- mit Höchstalter statt mit '-f'. Die
+    # Ertragsstatistik ist zwölf Felder breit, jedes Feld ein eigenes
+    # Telegramm; in der Warteschlange fraß sie ein Fünftel aller Anfragen für
+    # zwei Werte, die sich einmal am Tag ändern.
+    value = await client.read("ui", "YieldThisYear", 3600)
+    check("Lesen mit Höchstalter", value is not None and value.count(";") == 11,
+          "zwölf Monatswerte")
+    check("Kein Buszugriff erzwungen", "-f" not in cached_reads[-1],
+          f"'{cached_reads[-1]}'")
+
+    # Eine mehrfeldrige Nachricht hat waehrend ihres eigenen Lesevorgangs
+    # keinen Wert: 'find' liefert sie dann gar nicht, und die Entitaet fiel
+    # fuer einen Zyklus auf 'unavailable' -- sechsmal in 16 Stunden an der
+    # laufenden Anlage. Die Ueberbrueckung faengt das ab, aber nur befristet.
+    vorher = {"ui": {"YieldThisYear": "26;38;157", "RoomTemp": "30.06;ok"}}
+    jetzt = {"ui": {"RoomTemp": "30.12;ok"}}
+    offen, abgelaufen = ebusd.carry_forward(vorher, jetzt, {}, 1000.0, 600)
+    check("Lücke überbrückt", jetzt["ui"]["YieldThisYear"] == "26;38;157",
+          "letzter Wert gilt weiter")
+    check("Nur die Lücke", jetzt["ui"]["RoomTemp"] == "30.12;ok",
+          "vorhandene Werte bleiben unangetastet")
+    check("Ausfall vorgemerkt", list(offen) == [("ui", "YieldThisYear")] and not abgelaufen,
+          "seit 1000.0")
+
+    spaeter = {"ui": {"RoomTemp": "30.12;ok"}}
+    offen2, abgelaufen2 = ebusd.carry_forward(vorher, spaeter, offen, 1601.0, 600)
+    check("Frist läuft ab", abgelaufen2 == [("ui", "YieldThisYear")] and not offen2,
+          "nach 601 s gilt der Wert als weg")
+    check("Wert nicht mehr geliefert", "YieldThisYear" not in spaeter["ui"],
+          "die Entität darf jetzt 'unavailable' werden")
+
+    zurueck = {"ui": {"YieldThisYear": "26;38;158", "RoomTemp": "30.12;ok"}}
+    offen3, abgelaufen3 = ebusd.carry_forward(vorher, zurueck, offen, 1200.0, 600)
+    check("Rückkehr beendet die Überbrückung", not offen3 and not abgelaufen3,
+          "der Merker verschwindet mit dem Wert")
 
     # Ein Neustart von ebusd reisst die Verbindung ab. Der naechste Befehl muss
     # trotzdem durchkommen -- sonst faellt die ganze Integration aus, nur weil

@@ -175,14 +175,22 @@ class EbusdClient:
             values.setdefault(key, value)
         return values
 
-    async def read(self, circuit: str, message: str) -> str | None:
-        """Eine einzelne Nachricht frisch vom Bus lesen.
+    async def read(self, circuit: str, message: str, maxage: int | None = None) -> str | None:
+        """Eine einzelne Nachricht lesen -- am Cache vorbei oder aus ihm.
 
-        '-f' umgeht den Cache von ebusd. Das kostet einen Roundtrip auf dem
-        langsamen Bus und ist deshalb nur nach einer Benutzeraktion vertretbar,
-        niemals im Abrufzyklus -- dort bleibt es bei einem 'find' je Kreis.
+        Ohne 'maxage' mit '-f': der Cache wird umgangen, der Wert kommt frisch
+        vom Bus. Das kostet einen Roundtrip auf dem langsamen Bus und ist
+        deshalb nur nach einer Benutzeraktion vertretbar, niemals reihum im
+        Abrufzyklus -- dort bleibt es bei einem 'find' je Kreis.
+
+        Mit 'maxage' genau andersherum: ebusd antwortet aus dem
+        Zwischenspeicher, solange der Wert jünger ist als die angegebene
+        Sekundenzahl, und geht nur sonst auf den Bus. Damit lassen sich
+        einzelne Register frisch halten, ohne sie in die Poll-Warteschlange zu
+        stellen -- siehe READ_MAXAGE in poll.py.
         """
-        lines = await self.command(f"read -f -c {circuit} {message}")
+        cache = "-f" if maxage is None else f"-m {maxage}"
+        lines = await self.command(f"read {cache} -c {circuit} {message}")
         value = lines[0].strip() if lines else ""
         if not value or value.startswith(_NO_VALUE_PREFIXES):
             return None
@@ -216,6 +224,48 @@ class EbusdClient:
         except EbusdError as err:
             _LOGGER.debug("Nachlesen von %s %s fehlgeschlagen: %s", circuit, read_message, err)
             return None
+
+
+def carry_forward(
+    previous: dict[str, dict[str, str]],
+    current: dict[str, dict[str, str]],
+    missing_since: dict[tuple[str, str], float],
+    now: float,
+    limit: float,
+) -> tuple[dict[tuple[str, str], float], list[tuple[str, str]]]:
+    """Kurze Lücken im Zwischenspeicher von ebusd überbrücken.
+
+    Eine mehrfeldrige Nachricht hat während ihres eigenen Lesevorgangs keinen
+    Wert: ebusd holt jedes Feld mit einem eigenen Telegramm, und `find`
+    liefert für die Nachricht in diesem Fenster nichts. Fällt ein Abruf genau
+    hinein, verschwindet ein Register aus der Antwort und die Entität steht
+    für einen Zyklus auf `unavailable` -- an der Anlage sechsmal in 16 Stunden
+    beobachtet, jedes Mal an einem der beiden Ertragsregister.
+
+    Deshalb gilt der vorherige Wert weiter, aber nur `limit` Sekunden lang.
+    Die Frist ist der eigentliche Punkt: ein Register, das dauerhaft
+    ausbleibt, *soll* `unavailable` werden. Genau das ist der Ausfall, den
+    poll.py beschreibt -- steht ein Register nicht mehr in der Poll-Liste,
+    liefert ebusd stumm den letzten bekannten Wert. Ein unbefristetes
+    Weiterreichen würde diesen Ausfall verstecken.
+
+    Ändert `current` an Ort und Stelle. Zurück kommen die noch überbrückten
+    Register und die, deren Frist gerade abgelaufen ist -- letztere gehören
+    ins Protokoll, sie sind der Übergang von "kurze Lücke" zu "weg".
+    """
+    still: dict[tuple[str, str], float] = {}
+    expired: list[tuple[str, str]] = []
+    for circuit, values in previous.items():
+        for message, value in values.items():
+            if message in current.get(circuit, {}):
+                continue
+            since = missing_since.get((circuit, message), now)
+            if now - since > limit:
+                expired.append((circuit, message))
+                continue
+            still[(circuit, message)] = since
+            current.setdefault(circuit, {})[message] = value
+    return still, expired
 
 
 def sum_fields(raw: str | None) -> int | None:

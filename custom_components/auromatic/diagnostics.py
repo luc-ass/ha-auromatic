@@ -27,6 +27,11 @@ async def async_get_config_entry_diagnostics(
 
     return {
         "entry": async_redact_data(dict(entry.data), TO_REDACT),
+        # Das Abrufintervall steht in den Optionen, nicht in den Daten. Ohne
+        # diese Zeile fehlt es in der Diagnose, und dann lässt sich der
+        # wichtigste Parameter der Integration nur noch aus dem Zeitraster der
+        # Zustandswechsel erraten -- genau das war am 2026-09-02 nötig.
+        "options": dict(entry.options),
         "ebusd_info": info,
         "circuits": coordinator.data,
     }

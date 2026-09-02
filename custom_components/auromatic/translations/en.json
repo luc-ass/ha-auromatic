@@ -89,9 +89,6 @@
       "pump_hours": {
         "name": "Collector pump operating hours"
       },
-      "system_flow": {
-        "name": "System flow temperature"
-      },
       "system_mode": {
         "name": "System state",
         "state": {

@@ -58,7 +58,7 @@ Regler:
 
 | Circuit | Adresse | Gerät | Wesentliche Entitäten |
 |---|---|---|---|
-| `ui` | 0x15 | Bedienteil | Systemzustand, Systemvorlauf, Kesselbetriebsstunden, Solarertrag |
+| `ui` | 0x15 | Bedienteil | Systemzustand, Raumfühler Heizungsraum, Kesselbetriebsstunden, Solarertrag |
 | `cc` | 0x23 | Zentralteil | Diagnose |
 | `hwc` | 0x25 | Warmwasser | `water_heater` mit Speichertemperatur, Sollwert, Betriebsart |
 | `hc` | 0x26 | Heizkreis | Betriebsart, Raumsollwerte, Heizkurve, Störung |

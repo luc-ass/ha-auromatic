@@ -25,6 +25,22 @@ class CircuitMixin:
     message: str
     field: int = 0
     status_field: int | None = None
+    # Nur setzen, wo der Wert aus einem anderen Kreis kommt als das Gerät, an
+    # dem die Entität hängt: der Speicherfühler oben steht im Warmwasserkreis
+    # und im Solarkreis unter verschiedenen Namen, ist aber ein und derselbe
+    # Fühler. Ihn zweimal zu pollen kostet einen Platz in der Warteschlange
+    # für nichts; die Entität im Solarkreis liest deshalb aus `hwc`, behält
+    # aber ihr Gerät, ihren Namen und ihre Historie.
+    #
+    # Ausschließlich für die Leseseite. Geschrieben wird immer auf `circuit`,
+    # sonst ginge der Befehl an den falschen Teilnehmer -- tests/
+    # test_translations.py prüft, dass beides nie zusammentrifft.
+    source_circuit: str | None = None
+
+    @property
+    def source(self) -> str:
+        """Der Kreis, aus dem der Wert kommt -- fast immer der eigene."""
+        return self.source_circuit or self.circuit
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -65,14 +81,14 @@ class AuromaticEntity(CoordinatorEntity[AuromaticCoordinator]):
     def raw_message(self) -> str | None:
         """Der unzerlegte Wert der Nachricht."""
         return self.coordinator.message(
-            self.entity_description.circuit, self.entity_description.message
+            self.entity_description.source, self.entity_description.message
         )
 
     @property
     def raw_value(self) -> str | None:
         """Der aufbereitete Rohwert dieser Entität."""
         return self.coordinator.value(
-            self.entity_description.circuit,
+            self.entity_description.source,
             self.entity_description.message,
             self.entity_description.field,
             self.entity_description.status_field,

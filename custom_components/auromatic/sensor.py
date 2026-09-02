@@ -124,7 +124,16 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
     # angeschlossen), Storage4 ist TD1 aus der Differenztemperaturregelung --
     # kein Speicherfühler, deshalb auch keine monotone Solarladekurve.
     AuromaticSensorDescription(
-        key="storage_1", circuit="sc", message="Storage1Sensor3",
+        # Speicherfühler 1 (oben) und die Warmwasser-Speichertemperatur sind
+        # derselbe Fühler: am 2026-09-02 über 140 zeitgleiche Messungen
+        # verglichen, höchstens 0,24 K auseinander und zu 90 % unter 0,1 K.
+        # Gelesen wird deshalb `hwc Storage1Sensor2`, das der Warmwasserkreis
+        # ohnehin pollt; `sc Storage1Sensor3` ist aus dem Poll-Satz heraus und
+        # gibt seinen Platz in der Warteschlange an die übrigen Messwerte ab.
+        # Die Entität bleibt, wo sie hingehört: am Solarkreis, mit ihrem
+        # Namen und ihrer Historie.
+        key="storage_1", circuit="sc", source_circuit="hwc",
+        message="Storage1Sensor2",
         status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
@@ -165,10 +174,12 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # --- Bedienteil / Systemebene (0x15) ------------------------------------
-    AuromaticSensorDescription(
-        key="system_flow", circuit="ui", message="FlowTemp",
-        status_field=1, suggested_display_precision=1, **_TEMP,
-    ),
+    # `ui FlowTemp` hatte hier einen eigenen Sensor ("Systemvorlauf"). Er ist
+    # entfallen: der Wert ist derselbe wie `hc SumFlowSensor` (Sammelvorlauf) --
+    # identische Wertfolge, auseinander nur um den Zeitversatz der beiden
+    # Abrufe --, und den hält das Bedienteil ohne unser Zutun frisch. Zwei
+    # Entitäten für eine Temperatur sind eine zu viel, und zwei Register dafür
+    # zwei zu viel.
     AuromaticSensorDescription(
         key="system_mode", circuit="ui", message="SystemModeStream1",
         device_class=SensorDeviceClass.ENUM,
@@ -225,7 +236,7 @@ async def async_setup_entry(
         for description in SENSORS
         # Nicht verbaute Fühler melden "cutoff" und werden hier aussortiert,
         # statt später dauerhaft als "unavailable" herumzustehen.
-        if coordinator.value(description.circuit, description.message,
+        if coordinator.value(description.source, description.message,
                              description.field, description.status_field) is not None
     )
 

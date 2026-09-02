@@ -89,9 +89,6 @@
       "pump_hours": {
         "name": "Betriebsstunden Kollektorpumpe"
       },
-      "system_flow": {
-        "name": "Systemvorlauf"
-      },
       "system_mode": {
         "name": "Systemzustand",
         "state": {

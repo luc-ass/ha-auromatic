@@ -85,7 +85,7 @@ async def async_setup_entry(
     async_add_entities(
         AuromaticBinarySensor(coordinator, description, entry.entry_id)
         for description in BINARY_SENSORS
-        if coordinator.message(description.circuit, description.message) is not None
+        if coordinator.message(description.source, description.message) is not None
     )
 
 

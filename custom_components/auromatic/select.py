@@ -47,7 +47,7 @@ async def async_setup_entry(
     async_add_entities(
         AuromaticSelect(coordinator, description, entry.entry_id)
         for description in SELECTS
-        if coordinator.value(description.circuit, description.message) is not None
+        if coordinator.value(description.source, description.message) is not None
     )
 
 

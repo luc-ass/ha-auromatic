@@ -1,6 +1,6 @@
 # Stand der Umsetzung
 
-Stand: 2026-09-01. Planungsdokument mit Herleitung und Registerkarte:
+Stand: 2026-09-02. Planungsdokument mit Herleitung und Registerkarte:
 <https://claude.ai/code/artifact/e2491a1b-e82f-496d-95e7-3a4633908ec0>
 
 ---
@@ -60,25 +60,32 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Altlast: der MQTT-Handler von ebusd setzt Poll-Prioritäten
   (`setPollPriority` → `addPollMessage`) und spannte damit den
   156-Nachrichten-Poll-Satz auf, aus dem sich der Zwischenspeicher füllte, den
-  `find` liest. Diese Aufgabe hat jetzt `poll.py` mit 38 Registern. Die 158
+  `find` liest. Diese Aufgabe hat jetzt `poll.py` mit 34 Registern. Die 158
   MQTT-Entitäten sind verschwunden.
 - **`scan` springt immer wieder kurz auf `running`.** Vermutlich die beiden
   Master `0x3f` / `0x7f`, die sich nicht identifizieren lassen. Folge: ein
   Rescan wirft Nachrichten still aus der Poll-Liste. Deshalb prüft der
   Koordinator ihre Länge bei jedem Abruf.
-- **Solarhysterese: 12 K ein, 5 K aus.** `SolEnableDiffTemp1` und
-  `SolDisableDiffTemp1`, gemessen gegen Kollektor 1, nicht gegen Speicher oben.
-  Am 2026-09-01 live beobachtet: bei 70,7 °C Kollektor gegen 58,8 °C
-  `Storage4Sensor3` (11,9 K) lief die Pumpe an. **Welcher Fühler die
-  Bezugsgröße ist, ist damit offen**: `Storage4Sensor3` ist nach der
-  Fühlerzuordnung oben TD1 und kein Speicherfühler, und die Bedienungsanleitung
-  beschreibt die Differenztemperaturregelung als „Differenz zwischen
-  Kollektortemperatur und Speichertemperatur" — das wäre `Storage2Sensor3`.
-  Die eine Beobachtung passt zahlenmäßig zu TD1 (11,9 K gegen 12 K
-  Einschaltdifferenz), gegen `Storage2Sensor3` wären es rund 9,7 K gewesen.
-  Sie steht aber auf Messwerten, die bis zu 135 s alt sein können, bei steil
-  steigendem Kollektor. Zu klären an einem Pumpenstart mit ruhigem Kollektor,
-  bei dem beide Differenzen mitgeschrieben werden.
+- **Solarhysterese: 12 K ein, 5 K aus — gemessen gegen Kollektor 1 und
+  Speicherfühler 2 (unten).** `SolEnableDiffTemp1` und `SolDisableDiffTemp1`.
+  Der Bezugsfühler war offen und ist es seit dem 2026-09-02 nicht mehr: über
+  16 Schaltvorgänge eines Tages, mit Messwerten von 14–45 s Alter, liegen die
+  Differenzen so:
+
+  | Bezug | EIN (soll 12 K) | AUS (soll 5 K) |
+  |---|---|---|
+  | **Speicherfühler 2 unten** | 13,44 ±1,70 | **4,19 ±1,97** |
+  | TD1 (`Storage4Sensor3`) | 18,69 ±4,41 | 10,54 ±3,29 |
+  | Speicherfühler 1 oben | 5,84 ±2,37 | −2,50 ±2,14 |
+
+  Der Ausschaltpunkt streut bei Speicher unten von beiden Seiten um genau
+  5 K, die Einschaltwerte liegen dicht über 12 K — bei einem Abtastabstand von
+  120 s und steigendem Kollektor genau das erwartete Bild. TD1 passt weder in
+  der Lage noch in der Streuung. Die einzelne Beobachtung vom 2026-09-01
+  (11,9 K gegen TD1) war Zufall; sie stand auf Werten, die bis zu 135 s alt
+  sein konnten. Damit gilt, was die Bedienungsanleitung beschreibt: „Differenz
+  zwischen Kollektortemperatur und Speichertemperatur".
+
   Beide Register sind `r;w` vom Typ `temp0`, also nur ganze Kelvin. Weitere
   Solarparameter am Bus, bislang nicht eingebunden: `ScProtectionHysteresis`
   (30), `SolProtectionStartTemp` (130), `SolHwcMaxLoadTemp1` (90),
@@ -122,7 +129,31 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Aufnahme sendet ebusd dafür keine einzige eigene Anfrage — das Bedienteil
   fragt es 256-mal ab, ebusd schneidet mit. Offenbar überspringt der Poll, was
   ohnehin frisch im Zwischenspeicher liegt. Fremdverkehr auf dem Bus
-  verbilligt unseren Satz also, statt ihn zu stören.
+  verbilligt unseren Satz also, statt ihn zu stören. Am Tagesverlauf des
+  2026-09-02 abzulesen: der Sammelvorlauf wechselte im Median alle **30 s**
+  seinen Wert, alles selbst Gepollte alle 120 s.
+- **Zwei Messwerte standen doppelt am Bus.** Am 2026-09-02 zeitgleich
+  verglichen: `ui FlowTemp` und `hc SumFlowSensor` liefern dieselbe
+  Wertfolge (99 Paare, höchstens 0,63 K auseinander — der Zeitversatz der
+  beiden Abrufe), `hwc Storage1Sensor2` und `sc Storage1Sensor3` denselben
+  Fühler (140 Paare, höchstens 0,24 K, zu 90 % unter 0,1 K). Vier Plätze in
+  der Warteschlange für zwei Temperaturen. Geblieben sind `hc SumFlowSensor`
+  (das Bedienteil hält es umsonst frisch) und `hwc Storage1Sensor2` (der
+  Warmwasserkreis braucht es ohnehin); die Solar-Entität „Speicherfühler 1
+  oben" liest seit dem 2026-09-02 über `source_circuit` aus dem
+  Warmwasserkreis und behält dabei Gerät, Namen und Historie. Die Entität
+  „Systemvorlauf" ist ersatzlos entfallen — sie zeigte, was der Sammelvorlauf
+  schon zeigt.
+- **`sc SolProtection` ist eine Einstellung, kein Zustand.** Es stand vom
+  2026-09-01 bis 2026-09-02 durchgehend auf `on`, über 27 Stunden hinweg, bei
+  Kollektortemperaturen von 14 °C nachts bis 89 °C mittags — gegen eine
+  Schutzschwelle von 130 °C (`SolProtectionStartTemp`). Gemeldet wird die
+  freigegebene Funktion, nicht ihre Auslösung. Es liegt deshalb seit dem
+  2026-09-02 auf Stufe 9, ebenso `TeleSwitch`, der im selben Zeitraum
+  unverändert blieb. Beide sind ohnehin Diagnose-Entitäten. *Offen: die
+  Nachrichtendefinition selbst (`ebusctl find -e -c sc SolProtection`) würde
+  den Namen bestätigen; die Messreihe genügt für die Poll-Stufe, nicht
+  zwingend für die Beschriftung.*
 - **Keine brauchbare Raumtemperatur.** `ui RoomTemp` liefert zwar gültige Werte
   (~30 °C), das Bedienteil hängt aber im Heizungsraum. Als Führungsgröße
   bestätigt unbrauchbar.
@@ -130,7 +161,26 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   stored`). Systemzustand kommt stattdessen aus `ui SystemModeStream1`.
 - **Ertragsstatistik:** `ui YieldThisYear` / `YieldLastYear`, je zwölf
   Monatswerte in kWh. Nullwerte April–Juni 2026 sind echt (Heizung während des
-  Verkaufs abgeschaltet), kein Dekodierfehler.
+  Verkaufs abgeschaltet), kein Dekodierfehler. Fortgeschrieben wird einmal am
+  Tag: am 2026-09-02 um 00:04 buchte der Regler die 6 kWh des Vortages
+  (603 → 609), davor und danach stand die Zahl still.
+  **Zwölf Felder heißen zwölf Telegramme.** Das erklärt den Ausreißer aus der
+  Busaufnahme: `YieldLastYear` kam auf 36 Anfragen = drei Abrufe mal zwölf
+  Monate, also genau die Erwartung für Stufe 9 — kein Prioritätsfehler. Beide
+  Register zusammen machten rund ein Fünftel des gesamten Verkehrs aus. *Offen
+  bleibt allein, warum `YieldThisYear` mit 72 Anfragen auf sechs statt drei
+  Abrufe kam.*
+  Dazu kam ein sichtbarer Fehler: während eines solchen mehrteiligen
+  Lesevorgangs hat die Nachricht keinen Wert, `find` liefert sie nicht, und
+  die Entität fiel für einen Abrufzyklus auf `unavailable` — am 2026-09-02
+  sechsmal in 16 Stunden, jedes Mal exakt im 19-Minuten-Raster der Stufe 9.
+  Beides ist behoben: die zwei Register stehen seit dem 2026-09-02 in
+  `READ_MAXAGE` statt in der Warteschlange (einmal je Stunde per `read -m`,
+  aus dem Zwischenspeicher beantwortet), und der Koordinator überbrückt eine
+  fehlende Nachricht bis zu zehn Minuten lang mit ihrem letzten Wert. Die
+  Frist ist der Punkt: was länger ausbleibt, wird `unavailable` und
+  protokolliert — sonst versteckte die Überbrückung genau den Ausfall, den
+  der Poll-Satz verhindern soll.
 
 ---
 
@@ -142,7 +192,7 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
 |---|---|
 | `ebusd.py` | Asynchroner TCP-Client für Port 8888, `parse_field`, Filterlogik |
 | `coordinator.py` | `DataUpdateCoordinator`, ein `find` pro Kreis je Intervall |
-| `poll.py` | Welche 38 Register ebusd aktiv vom Bus holen soll, in drei Prioritäten |
+| `poll.py` | Welche 34 Register ebusd aktiv vom Bus holen soll, in drei Prioritäten |
 | `entity.py` | `CircuitMixin` + Basisklasse, Gerätezuordnung per `via_device` |
 | `config_flow.py` | Einrichtung inkl. Adress-Suche, Options-Flow für das Intervall |
 | `sensor.py` | Temperaturen, Erträge, Laufzeiten, Systemzustand |
@@ -159,9 +209,9 @@ Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
 ### Verifiziert
 
 - ebusd-Protokollschicht gegen wortgetreue Antwortdaten der Anlage
-  (`tests/test_ebusd.py`, 32 Prüfungen).
+  (`tests/test_ebusd.py`, 40 Prüfungen).
 - Vollständigkeit von Übersetzungen und Icons gegen den Entitätsbestand
-  (`tests/test_translations.py`, 258 Prüfungen).
+  (`tests/test_translations.py`, 297 Prüfungen).
 - Dataclass-Komposition der Description-Klassen (Mehrfachvererbung mit
   `frozen=True, kw_only=True`) gegen strukturgleiche Nachbauten.
 - **Bedienung in Home Assistant:** Die Integration lädt, die Betriebsart lässt
@@ -196,6 +246,22 @@ Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
   Die mitgelesenen Antwortbytes stehen dabei sämtlich auf den Ausgangswerten
   der Schreibtests: `hc` 25,0 / 18,0 / 1,00 / `off`, `mc` 22,0 / 19,0 / 0,50 /
   `off`, `mc FlowTempMax` 40, `hwc` 50,0 / `auto`, `sc` 12 / 5 K.
+
+- **Ein Tag im Betrieb** (2026-09-02, 16 h ohne Unterbrechung seit dem letzten
+  HA-Neustart, gelesen über die REST-API): `poll: 38`, `scan: finished`,
+  `reconnects: 0` — der Koordinator musste kein einziges Mal nachmelden. Alle
+  39 Entitäten mit gültigem Wert. Messwerte im Median alle **120 s**
+  (Kollektor, TD1, Solarrücklauf, Speicher unten), Sammelvorlauf alle 30 s.
+  Einzige Ausfälle: die beiden Ertragssensoren, je einen Zyklus lang, sechsmal
+  — Ursache gefunden und behoben, siehe oben. Die Kollektorpumpe taktete
+  achtmal in 1¾ Stunden bei 82 °C Speicher oben; kurz vor Ladeschluss ist das
+  normal.
+- **Abrufintervall: 15 s** (statt der 60 s Voreinstellung, in den Optionen
+  gesetzt). Ablesbar am Zeitraster aller Zustandswechsel — 105 / 120 / 135 /
+  225 s, alles Vielfache von 15. Bewusst so belassen: der Bus merkt davon
+  nichts, `find` liest nur den Zwischenspeicher. Seit dem 2026-09-02 stehen
+  die Optionen auch in den Diagnosedaten, damit das nächste Mal niemand
+  wieder raten muss.
 
 ### Nicht verifiziert
 
@@ -253,7 +319,7 @@ vorliegt, wurde die gesamte Integration `unavailable`.
 
 Zweitens ist `mc RoomTempOffset` überhaupt nicht pollbar: `roomtempoffset.inc`
 definiert es ausschließlich schreibend. ebusd hört den Wert nur passiv mit,
-wenn das Bedienteil ihn setzt. Es steht deshalb in `POLL_PASSIVE`.
+wenn das Bedienteil ihn setzt. Es steht deshalb in `POLL_EXEMPT`.
 
 Beides führte zur heutigen Lösung: die Anmeldung wartet auf `scan: finished`,
 fasst im Hintergrund nach — und vor allem prüft der Koordinator bei **jedem**
@@ -277,20 +343,31 @@ wäre.
 
 Die Liste ist eine Prioritätswarteschlange — nach jedem Abruf rückt eine
 Nachricht um ihren Prioritätswert nach hinten, niedrige Zahl heißt häufiger.
-Daraus drei Stufen in `poll.py`: 18 Messwerte auf 1, vier Bedienelemente
+Daraus drei Stufen in `poll.py`: 14 Messwerte auf 1, vier Bedienelemente
 (Betriebsarten beider Kreise, Warmwassersollwert und -betriebsart) auf 3, 16
 Sollwerte und Zähler auf 9. Sollwerte brauchen die Warteschlange kaum, weil
 `write_and_confirm` sie nach jeder Änderung ohnehin mit `read -f` frisch holt;
 sie stehen nur drin, falls jemand direkt am Regler dreht — die Bedienelemente
 deshalb in der Mitte, weil dieser Fall bei ihnen der wahrscheinlichste ist.
-Rechnerisch: ~2,1 Minuten für einen Messwert, ~6 für ein Bedienelement, ~19
+Rechnerisch: ~1,7 Minuten für einen Messwert, ~5 für ein Bedienelement, ~15
 für einen Sollwert, bei unveränderter Buslast.
+
+Das Modell ist nachgemessen: mit den 21,11 Anteilen des ersten Satzes sagte es
+127 s voraus, der Median über einen vollen Tag lag bei 120 s.
 
 Drei Register bleiben mit Grund draußen (`POLL_EXEMPT`): `mc RoomTempOffset`
 ist nur schreibend definiert, `sc Coll2Sensor` und `sc Storage3Sensor3` melden
 `cutoff` und haben deshalb gar keine Entität — sie würden je einen der
 schnellen Plätze für nichts belegen. Jede Ausnahme macht die übrigen
 schneller.
+
+Zwei weitere stehen in `READ_MAXAGE` und damit in keiner Warteschlange: die
+beiden Ertragsregister sind zwölf Felder breit, kosten also zwölf Telegramme
+je Abruf, und ändern sich einmal am Tag. Der Koordinator holt sie stattdessen
+selbst mit `read -m 3600` — ebusd beantwortet das aus dem Zwischenspeicher und
+geht höchstens stündlich dafür auf den Bus. Damit hat jedes gelesene Register
+genau einen von drei Plätzen: Warteschlange, Ausnahme oder Selbstabholung;
+`tests/test_translations.py` prüft das.
 
 **Am Regelwerk von Home Assistant ausgerichtet** (Integration Quality Scale).
 Umgesetzt: `has-entity-name`, `entity-unique-id`, `runtime-data`,
@@ -386,14 +463,18 @@ ohne HA-Installation.
 5. **Weitere Solarparameter**, falls gewünscht: Kollektorschutz-Schwelle und
    -Hysterese, maximale Speicherladetemperatur, Mindest-Kollektortemperatur.
    Alle `r;w`, alle vorhanden — bislang bewusst nicht eingebunden.
-6. **Ertragsstatistik frisst Busanteil.** `ui YieldThisYear` und
-   `YieldLastYear` stehen auf Priorität 9, wurden in der Busaufnahme aber
-   72- bzw. 36-mal abgefragt — jedes andere 9er-Register genau dreimal. Das
-   sind zusammen rund ein Fünftel aller Anfragen von ebusd, für zwei Werte,
-   die sich monatlich ändern. Ursache unklar; zu klären an der
-   Nachrichtendefinition in `15.ui.csv` (`ebusctl find -e -c ui
-   YieldThisYear`), bevor jemand am Poll-Satz dreht.
-7. **HACS-Struktur** bewusst zurückgestellt.
+6. **Zwei Beschriftungen auf Verdacht.** `sc SolProtection` ist nach 27 h
+   Messreihe eine Einstellung und kein Zustand — die Nachrichtendefinition
+   (`ebusctl find -e -c sc SolProtection`) würde das schwarz auf weiß
+   bestätigen. Und `sc Storage4Sensor3` heißt „Fühler TD1", weil der Regler
+   ihn so listet; was er misst, ist damit noch nicht gesagt. Er folgt weder
+   dem Kollektor noch dem Speicher, fällt aber bei laufender Pumpe deutlich
+   ab.
+7. **`ui YieldThisYear` wird doppelt so oft abgefragt wie `YieldLastYear`**
+   (72 gegen 36 Anfragen bei gleicher Priorität). Beide stehen inzwischen
+   außerhalb der Warteschlange, der Punkt ist damit unkritisch — die Frage
+   bleibt trotzdem offen.
+8. **HACS-Struktur** bewusst zurückgestellt.
 
 ## 6. Versionsverwaltung
 

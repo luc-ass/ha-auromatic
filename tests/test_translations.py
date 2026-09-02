@@ -33,6 +33,7 @@ poll_module = importlib.util.module_from_spec(_poll_spec)
 _poll_spec.loader.exec_module(poll_module)
 poll_set = poll_module.POLL_SET
 poll_exempt = set(poll_module.POLL_EXEMPT)
+read_maxage = set(poll_module.READ_MAXAGE)
 
 # Plattform -> Modul. water_heater fehlt bewusst: seine Entität ist das
 # Hauptmerkmal des Geräts und trägt deshalb keinen eigenen Namen.
@@ -127,7 +128,10 @@ def used_messages() -> set[tuple[str, str]]:
                 continue
             if getattr(node.func, "id", "").endswith("Description"):
                 fields = {kw.arg: kw.value for kw in node.keywords if kw.arg}
-                circuit, message = fields.get("circuit"), fields.get("message")
+                # Gelesen wird aus `source_circuit`, wo es gesetzt ist: die
+                # Entität hängt dann an einem anderen Gerät als das Register.
+                circuit = fields.get("source_circuit") or fields.get("circuit")
+                message = fields.get("message")
                 if isinstance(circuit, ast.Constant) and isinstance(message, ast.Constant):
                     found.add((circuit.value, message.value))
             elif getattr(node.func, "attr", "") == "value" and len(node.args) >= 2:
@@ -174,6 +178,12 @@ def main() -> int:
         poll = {(circuit, message) for circuit, msgs in poll_set.items() for message in msgs}
         used = used_messages()
         check("Poll-Satz gefunden", len(poll) > 30, f"{len(poll)} Register")
+        # Register aus READ_MAXAGE stehen nicht in der Warteschlange, bleiben
+        # aber frisch: der Koordinator holt sie selbst mit 'read -m'. Für die
+        # Vollständigkeitsprüfung zählen sie deshalb wie angemeldet.
+        check("Nichts doppelt geholt", poll.isdisjoint(read_maxage),
+              f"{len(read_maxage)} Register außerhalb der Warteschlange")
+        poll |= read_maxage
         # Ein Register darf nur dann fehlen, wenn es in POLL_EXEMPT steht --
         # dort mit Grund, denn jede Ausnahme ist eine Entscheidung: schreibende
         # Nachrichten lassen sich nicht pollen, nicht angeschlossene Fuehler
@@ -191,6 +201,22 @@ def main() -> int:
         for circuit, message in sorted(poll - used):
             check(f"{circuit}.{message}: wird gebraucht", False, "angemeldet, aber niemand liest es")
         check("kein Register auf Vorrat", not (poll - used), "Satz deckt sich mit dem Bedarf")
+
+        # Wer aus einem fremden Kreis liest, darf dort nicht hineinschreiben:
+        # der Schreibbefehl geht immer an `circuit`, der Lesewert kaeme aus
+        # `source_circuit` -- das Bedienelement zeigte dann etwas anderes an,
+        # als es verstellt.
+        for platform in PLATFORMS:
+            tree = ast.parse((ROOT / f"{platform}.py").read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not getattr(node.func, "id", "").endswith("Description"):
+                    continue
+                fields = {kw.arg for kw in node.keywords if kw.arg}
+                check(f"{platform}: fremder Kreis nur lesend",
+                      not ({"source_circuit", "write_message"} <= fields),
+                      "source_circuit und write_message schliessen sich aus")
 
         # Ein Schreibname, den es im Kreis nicht gibt, faellt erst beim
         # Verstellen auf. Beide Namen muessen uebereinstimmen: die Register
