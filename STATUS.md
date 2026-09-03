@@ -384,7 +384,7 @@ Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
 - ebusd-Protokollschicht gegen wortgetreue Antwortdaten der Anlage
   (`tests/test_ebusd.py`, 40 Prüfungen).
 - Vollständigkeit von Übersetzungen und Icons gegen den Entitätsbestand
-  (`tests/test_translations.py`, 393 Prüfungen).
+  (`tests/test_translations.py`, 395 Prüfungen).
 - Dataclass-Komposition der Description-Klassen (Mehrfachvererbung mit
   `frozen=True, kw_only=True`) gegen strukturgleiche Nachbauten.
 - **Bedienung in Home Assistant:** Die Integration lädt, die Betriebsart lässt
@@ -478,6 +478,48 @@ Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
   Die sieben Entitäten, die beim Neustart neu entstanden sind, haben genau die
   vorhergesagten `entity_id` bekommen -- Home Assistant bildet sie aus Bereich,
   Gerät und Entitätsname.
+- **Der Regler schaltet seine Ausgänge 1,5 s nach der Quittung.** Am
+  2026-09-03 über beide Richtungen gemessen, ein Lesevorgang je Runde: nach
+  `write -c cc SetMode on` stand `hwc CirPump2` bei +1,44 s noch auf `off` und
+  bei +1,59 s auf `on`; zurück bei +0,95 s noch `on`, bei +1,60 s `off`. Der
+  Schreibbefehl ist also längst quittiert, bevor das Relais fällt.
+
+  Das ist der Grund für `EFFECT_SETTLE` im Koordinator. Der Pumpenzustand
+  hinkte dem Schalten vorher um bis zu zwei Minuten nach -- gemessen 72 s bis
+  in den Zwischenspeicher von ebusd, 82 s bis in die Oberfläche --, weil er
+  eben nicht in dem Register steht, das ihn schaltet, sondern in einem anderen
+  Kreis auf Stufe 1 der Warteschlange. `effect_message` in der Beschreibung
+  nennt dieses Register, `async_write` liest es nach dem Schreiben mit; siehe
+  Invariante 7.
+
+  **Ohne die Wartezeit wäre das Nachlesen schlimmer als nutzlos gewesen:** es
+  holt den alten Wert frisch vom Bus und schreibt ihn damit in den
+  Zwischenspeicher von ebusd, wo er bis zum nächsten Durchlauf der
+  Warteschlange stehen bleibt. Genau so verhielt sich der erste Anlauf am
+  2026-09-03, und es fiel nur auf, weil der Test den Regler selbst gegengelesen
+  hat statt nur Home Assistant.
+
+  *Drei Messungen davor waren wertlos und sind es wert, erwähnt zu werden: die
+  erste, weil das eigene `read -f` den Zwischenspeicher aufgefrischt hatte,
+  bevor Home Assistant gefragt wurde; die zweite, weil er noch auf dem Wert der
+  ersten stand; die dritte, weil Home Assistant mitten im Test neu startete
+  (43 Entitäten mit identischem `last_changed` verraten das). Wer die Latenz
+  eines Zwischenspeichers misst, darf ihn nicht selbst anfassen -- und muss
+  wissen, wann das System zuletzt hochgefahren ist.*
+- **Das Nachlesen der Wirkung am laufenden System** (2026-09-03, nach dem
+  Neustart mit `EFFECT_SETTLE`, gemessen mit gesetztem System und in der
+  Reihenfolge „erst Home Assistant fragen, dann den Regler gegenlesen"):
+
+  | Aktion | Dauer | HA-Pumpe | Regler | erwartet |
+  |---|---|---|---|---|
+  | `select_option: on` | 2,9 s | `on` | `on` | `on` |
+  | `select_option: auto` | 2,5 s | `off` | `off` | `off` |
+
+  Die Oberfläche stimmt in beiden Richtungen unmittelbar nach dem
+  Dienstaufruf mit dem Regler überein -- vorher waren es bis zu zwei Minuten.
+  Dazu im selben Durchgang: 48 Entitäten ohne eine einzige ohne Wert, 42 von
+  42 Registern mit Wert im Zwischenspeicher, kein Protokolleintrag zur
+  Integration, 22 Dashboard-Referenzen ohne Leiche.
 - **Der Schreibweg der Zirkulation durch Home Assistant selbst** (2026-09-03),
   nicht mehr nur über `ebusctl`: `select.select_option` auf `on` setzt das
   Rohregister 2B00 auf `0101`, Auswahl und Reglerzustand folgen sofort, das

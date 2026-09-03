@@ -226,6 +226,31 @@ def main() -> int:
                       not ({"source_circuit", "write_message"} <= fields),
                       "source_circuit und write_message schliessen sich aus")
 
+        # Das Register, das die Wirkung eines Schreibvorgangs zeigt, wird
+        # unmittelbar danach mitgelesen. Es muss eines sein, das die
+        # Integration ohnehin führt -- sonst landete ein Wert im Datenbestand,
+        # den kein Abruf je erneuert, und die Anzeige fröre auf dem Stand der
+        # letzten Benutzeraktion ein.
+        gefuehrt = {(c, msg) for c, msgs in poll_set.items() for msg in msgs} | read_maxage
+        wirkungen = 0
+        for platform in PLATFORMS:
+            tree = ast.parse((ROOT / f"{platform}.py").read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not getattr(node.func, "id", "").endswith("Description"):
+                    continue
+                fields = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+                wirkung = fields.get("effect_message")
+                if not isinstance(wirkung, ast.Tuple):
+                    continue
+                teile = tuple(e.value for e in wirkung.elts if isinstance(e, ast.Constant))
+                wirkungen += 1
+                key = fields["key"].value
+                check(f"{platform}.{key}: Wirkungsregister wird gefuehrt",
+                      len(teile) == 2 and teile in gefuehrt, " ".join(teile))
+        check("Wirkungsregister gefunden", wirkungen >= 1, f"{wirkungen} Stueck")
+
         # Ein schreibbarer Wert landet ohne `entity_category` unter den
         # Bedienelementen des Geraets -- gleichrangig mit dem, was man
         # taeglich anfasst. Das sind an dieser Anlage genau drei Groessen: die

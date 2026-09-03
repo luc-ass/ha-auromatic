@@ -24,6 +24,10 @@ class AuromaticSelectDescription(SelectEntityDescription, CircuitMixin):
     """Betriebsart eines Kreises samt zugehöriger Schreibnachricht."""
 
     write_message: str
+    # Register, das die Wirkung des Schreibvorgangs zeigt und deshalb
+    # unmittelbar danach mitgelesen wird -- (Kreis, Nachricht). Siehe
+    # AuromaticCoordinator.async_write.
+    effect_message: tuple[str, str] | None = None
 
 
 SELECTS: tuple[AuromaticSelectDescription, ...] = (
@@ -48,6 +52,10 @@ SELECTS: tuple[AuromaticSelectDescription, ...] = (
         key="mode", translation_key="circulation_mode",
         circuit="cc", message="Mode", field=1,
         write_message="SetMode", options=[*HWC_MODE_OPTIONS],
+        # Der Pumpenzustand steht in einem anderen Kreis als die Betriebsart,
+        # die ihn auslöst. Ohne Nachlesen bleibt die Pumpenkachel nach dem
+        # Umschalten über eine Minute stehen.
+        effect_message=("hwc", "CirPump2"),
     ),
 )
 
@@ -101,7 +109,8 @@ class AuromaticSelect(AuromaticEntity, SelectEntity):
         description = self.entity_description
         try:
             await self.coordinator.async_write(
-                description.circuit, description.write_message, option, description.message
+                description.circuit, description.write_message, option,
+                description.message, description.effect_message,
             )
         except EbusdError as err:
             raise HomeAssistantError(f"Betriebsart konnte nicht gesetzt werden: {err}") from err

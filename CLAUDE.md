@@ -17,7 +17,7 @@ Heizung ── eBUS ── Adapter Shield C6 ── ebusd ── custom_componen
 
 ```
 python3 tests/test_ebusd.py         # 40 Prüfungen, braucht kein Home Assistant
-python3 tests/test_translations.py  # 393 Prüfungen, braucht kein Home Assistant
+python3 tests/test_translations.py  # 395 Prüfungen, braucht kein Home Assistant
 ```
 
 `test_ebusd.py` spielt wortgetreue `ebusctl`-Antworten der echten Anlage gegen
@@ -83,13 +83,17 @@ Wo eine Prüfung Heizkreis und Mischerkreis unterscheiden muss, darf sie nicht
    `read -m` holt. Jedes gelesene Register muss in genau einer der drei
    Listen stehen.
 7. **Ein Roundtrip pro Kreis** über `find` statt einer Leseanfrage je Register.
-   Der eBUS ist langsam; `find` liest nur den Cache von ebusd. Zwei Ausnahmen,
-   beide eng begrenzt: nach einem Schreibvorgang ein `read -f` auf die
+   Der eBUS ist langsam; `find` liest nur den Cache von ebusd. Drei Ausnahmen,
+   alle eng begrenzt: nach einem Schreibvorgang ein `read -f` auf die
    zugehörige Lesenachricht — der Cache steht dort sonst bis zum nächsten Poll
    auf dem alten Wert und die Oberfläche springt zurück; nur nach
-   Benutzeraktion, nie reihum. Und für die Register aus `READ_MAXAGE` ein
-   `read -m`, das ebusd aus dem Zwischenspeicher beantwortet — auf den Bus
-   geht es dort höchstens einmal je Höchstalter.
+   Benutzeraktion, nie reihum. Dazu, ebenfalls nur nach einer Benutzeraktion,
+   ein `read -f` auf das Register, das die *Wirkung* des Schreibvorgangs zeigt
+   (`effect_message` in der Beschreibung): der Zustand der Zirkulationspumpe
+   steht nicht in dem Register, das sie schaltet, und käme sonst erst mit der
+   Warteschlange — gemessene 82 Sekunden später. Und für die Register aus
+   `READ_MAXAGE` ein `read -m`, das ebusd aus dem Zwischenspeicher beantwortet
+   — auf den Bus geht es dort höchstens einmal je Höchstalter.
 
 ## Sprache
 

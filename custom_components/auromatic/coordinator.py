@@ -33,6 +33,18 @@ CARRY_FORWARD_LIMIT = 600
 # und 42 davon hintereinander legten den Setup minutenlang lahm.
 WARM_CACHE_GIVE_UP = 3
 
+# Wie lange nach einem Schreibvorgang gewartet wird, bevor das Register
+# gelesen wird, das dessen Wirkung zeigt. Der Regler schaltet seine Ausgänge
+# nicht im selben Moment, in dem er den Schreibbefehl quittiert: am 2026-09-03
+# über beide Richtungen gemessen folgte `hwc CirPump2` dem `cc SetMode` nach
+# rund 1,5 s (bei +1,44 s noch `off`, bei +1,59 s `on`; zurück bei +0,95 s noch
+# `on`, bei +1,60 s `off`).
+#
+# Ohne diese Wartezeit ist das Nachlesen schlimmer als nutzlos: es holt den
+# alten Wert frisch vom Bus und schreibt ihn damit in den Zwischenspeicher von
+# ebusd -- wo er bis zum nächsten Durchlauf der Warteschlange stehen bleibt.
+EFFECT_SETTLE = 2.0
+
 # Ein Register aus READ_MAXAGE, das nicht antwortet, wird nicht eine ganze
 # Stunde in Ruhe gelassen -- sonst hinge die Entität nach einer einzelnen
 # gescheiterten Anfrage bis zum nächsten Termin in der Luft.
@@ -314,13 +326,34 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
             )
 
     async def async_write(
-        self, circuit: str, write_message: str, value: str, read_message: str
+        self,
+        circuit: str,
+        write_message: str,
+        value: str,
+        read_message: str,
+        effect: tuple[str, str] | None = None,
     ) -> None:
         """Einen Wert schreiben und das Ergebnis sofort sichtbar machen.
 
         Ein bloßes async_request_refresh() genügt nicht: es liest den noch
         alten Cache von ebusd und wirft die Bedienung damit auf den vorherigen
         Wert zurück.
+
+        `effect` nennt ein zweites Register, das die *Wirkung* des
+        Schreibvorgangs zeigt und deshalb mitgelesen wird. Bislang gibt es
+        genau eines: der Zustand der Zirkulationspumpe steht nicht in dem
+        Register, das die Betriebsart schaltet, sondern in `hwc CirPump2`.
+        Ohne dieses Nachlesen wartet die Oberfläche darauf, dass die
+        Warteschlange dort vorbeikommt -- am 2026-09-03 gemessene 82 Sekunden,
+        rechnerisch bis zu 113. Wer gerade Dauerbetrieb eingeschaltet hat,
+        liest in der Zeit "Pumpe: aus" und hält die Anlage für kaputt.
+
+        Gelesen wird erst nach EFFECT_SETTLE: der Regler quittiert den
+        Schreibbefehl, bevor er den Ausgang schaltet. Zu früh gelesen holt man
+        den alten Wert -- und macht es damit schlimmer, statt es zu beheben.
+
+        Ein Buszugriff je Benutzeraktion, nie reihum -- dieselbe Begründung wie
+        beim Nachlesen der Lesenachricht selbst (Invariante 7).
         """
         confirmed = await self.client.write_and_confirm(
             circuit, write_message, value, read_message
@@ -329,6 +362,23 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
         # Kam kein Lesewert zurück, gilt der geschriebene: ebusd hat den
         # Schreibvorgang quittiert. Der nächste Abruf korrigiert das ohnehin.
         data.setdefault(circuit, {})[read_message] = value if confirmed is None else confirmed
+
+        if effect is not None:
+            effect_circuit, effect_message = effect
+            await asyncio.sleep(EFFECT_SETTLE)
+            try:
+                wirkung = await self.client.read(effect_circuit, effect_message)
+            except EbusdError as err:
+                # Der Schreibvorgang selbst ist längst quittiert; ein
+                # misslungenes Nachlesen der Wirkung darf ihn nicht zum
+                # Fehlschlag machen. Der nächste Abruf holt den Wert ohnehin.
+                _LOGGER.debug(
+                    "Wirkung %s %s nicht lesbar: %s", effect_circuit, effect_message, err
+                )
+            else:
+                if wirkung is not None:
+                    data.setdefault(effect_circuit, {})[effect_message] = wirkung
+
         self.async_set_updated_data(data)
 
     def message(self, circuit: str, message: str) -> str | None:
