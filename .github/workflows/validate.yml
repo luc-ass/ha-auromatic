@@ -24,10 +24,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # „brands" verlangt ein Logo im Repository home-assistant/brands.
-          # Das gilt nur für Integrationen, die in HACS aufgenommen werden
-          # sollen; für ein eigenes Repository ist es kein Fehler.
-          ignore: brands
 
   tests:
     name: Eigene Tests
