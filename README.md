@@ -4,6 +4,8 @@ Custom-Integration für die Vaillant auroMATIC 620/3 (Gerätekennung `SOLSY`)
 über [ebusd](https://github.com/john30/ebusd). Sie erzeugt aus den ebusd-Werten
 richtige Home-Assistant-Entitäten mit Gerätestruktur — statt roher MQTT-Topics.
 
+[![Über HACS installierbar](https://img.shields.io/badge/HACS-Benutzerdefiniert-41BDF5.svg)](https://hacs.xyz)
+
 ## Aufbau
 
 ```
@@ -24,9 +26,26 @@ kommen als Rückgabewert statt im Nichts zu verschwinden.
 
 ## Installation
 
+### Über HACS
+
+Die Integration steht nicht im Standardkatalog von HACS, das Repository muss
+deshalb einmal von Hand angemeldet werden: *HACS → Menü oben rechts →
+Benutzerdefinierte Repositories*, dort `https://github.com/luc-ass/ha-auromatic`
+mit der Kategorie *Integration* eintragen. Danach erscheint „Vaillant
+auroMATIC (ebusd)" in der HACS-Liste, lässt sich herunterladen und meldet
+künftige Versionen selbst.
+
+Nach der Installation Home Assistant neu starten.
+
+### Von Hand
+
 `custom_components/auromatic/` in das Konfigurationsverzeichnis von Home
-Assistant kopieren, neu starten, dann *Einstellungen → Geräte & Dienste →
-Integration hinzufügen → Vaillant auroMATIC*.
+Assistant kopieren, neu starten.
+
+### Einrichten
+
+*Einstellungen → Geräte & Dienste → Integration hinzufügen → Vaillant
+auroMATIC*.
 
 ### Welche Adresse?
 
@@ -101,6 +120,14 @@ python3 tests/test_ebusd.py
 
 Läuft ohne installiertes Home Assistant gegen einen Fake-ebusd, der
 wortgetreue Antworten der echten Anlage zurückspielt.
+
+## Neue Version veröffentlichen
+
+HACS bietet den Anwendern die GitHub-*Releases* an. Ein Release braucht deshalb
+zweierlei, und zwar gleichlautend: das Tag (`v0.2.0`) und das Feld `version` in
+`custom_components/auromatic/manifest.json` (`0.2.0`). Weichen sie voneinander
+ab, lädt HACS zwar die Dateien, meldet aber weiter die alte Version als
+installiert und bietet dasselbe Update immer wieder an.
 
 ## Stand
 

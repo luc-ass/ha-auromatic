@@ -1,0 +1,41 @@
+name: Validierung
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Wöchentlich, damit neue Regeln von hassfest und HACS auffallen,
+    # bevor jemand die Integration installieren will.
+    - cron: "0 4 * * 1"
+
+jobs:
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # „brands" verlangt ein Logo im Repository home-assistant/brands.
+          # Das gilt nur für Integrationen, die in HACS aufgenommen werden
+          # sollen; für ein eigenes Repository ist es kein Fehler.
+          ignore: brands
+
+  tests:
+    name: Eigene Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 tests/test_ebusd.py
+      - run: python3 tests/test_translations.py
