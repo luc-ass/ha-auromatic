@@ -48,10 +48,19 @@
       "mode_state": {
         "name": "Controller state",
         "state": {
-          "auto": "Time program",
-          "on": "Continuous",
+          "auto": "Auto",
+          "on": "Heating",
           "eco": "Eco",
-          "low": "Setback",
+          "low": "Set-back",
+          "off": "Off",
+          "disabled": "Disabled"
+        }
+      },
+      "circulation_mode_state": {
+        "name": "Controller state",
+        "state": {
+          "auto": "Auto",
+          "on": "On",
           "off": "Off",
           "disabled": "Disabled"
         }
@@ -89,6 +98,21 @@
       "pump_hours": {
         "name": "Collector pump operating hours"
       },
+      "sol_protection_start": {
+        "name": "Collector protection threshold"
+      },
+      "sol_protection_hysteresis": {
+        "name": "Collector protection hysteresis"
+      },
+      "sol_max_load": {
+        "name": "Maximum storage loading temperature"
+      },
+      "coll_temp_min": {
+        "name": "Minimum collector temperature"
+      },
+      "sol_flow_rate": {
+        "name": "Flow rate"
+      },
       "system_mode": {
         "name": "System state",
         "state": {
@@ -102,7 +126,7 @@
         "name": "Controller room sensor"
       },
       "boiler_hours": {
-        "name": "Boiler operating hours"
+        "name": "Heat generator command hours"
       },
       "yield_year": {
         "name": "Solar yield this year"
@@ -118,11 +142,11 @@
       "pump": {
         "name": "Collector pump"
       },
-      "teleswitch": {
-        "name": "Telephone switch"
+      "circulation_pump": {
+        "name": "Pump"
       },
       "frost_protection": {
-        "name": "Solar frost protection"
+        "name": "Frost protection"
       },
       "collector_protection": {
         "name": "Collector protection"
@@ -132,29 +156,37 @@
       "mode": {
         "name": "Operating mode",
         "state": {
-          "auto": "Time program",
-          "on": "Continuous",
+          "auto": "Auto",
+          "on": "Heating",
           "eco": "Eco",
-          "low": "Setback",
+          "low": "Set-back",
+          "off": "Off"
+        }
+      },
+      "circulation_mode": {
+        "name": "Operating mode",
+        "state": {
+          "auto": "Auto",
+          "on": "On",
           "off": "Off"
         }
       }
     },
     "number": {
       "temp_desired": {
-        "name": "Day room setpoint"
+        "name": "Room target temperature"
       },
       "temp_desired_low": {
-        "name": "Setback room setpoint"
+        "name": "Set-back temperature"
       },
       "heating_curve": {
         "name": "Heating curve"
       },
       "sol_enable_diff": {
-        "name": "Solar switch-on differential"
+        "name": "Switch-on differential"
       },
       "sol_disable_diff": {
-        "name": "Solar switch-off differential"
+        "name": "Switch-off differential"
       }
     },
     "water_heater": {
@@ -162,10 +194,8 @@
         "state_attributes": {
           "operation_mode": {
             "state": {
-              "auto": "Time program",
-              "on": "Continuous",
-              "eco": "Eco",
-              "low": "Setback",
+              "auto": "Auto",
+              "on": "On",
               "off": "Off"
             }
           }

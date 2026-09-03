@@ -14,6 +14,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import ROOT_DEVICE
 from .coordinator import AuromaticConfigEntry
 from .entity import AuromaticEntity, CircuitMixin
 
@@ -54,7 +55,11 @@ class AuromaticBinaryDescription(BinarySensorEntityDescription, CircuitMixin):
 
 BINARY_SENSORS: tuple[AuromaticBinaryDescription, ...] = (
     AuromaticBinaryDescription(
-        key="error", circuit="hc", message="Currenterror",
+        # Der Fehlerspeicher der Anlage, kein Kreiswert: dasselbe Register
+        # steht unter jeder Adresse und trug am 2026-09-03 in `hc`, `cc` und
+        # `sc` denselben Inhalt.
+        key="error", circuit="hc", device_circuit=ROOT_DEVICE,
+        message="Currenterror",
         device_class=BinarySensorDeviceClass.PROBLEM, is_on_fn=_has_error,
     ),
     AuromaticBinaryDescription(
@@ -62,8 +67,13 @@ BINARY_SENSORS: tuple[AuromaticBinaryDescription, ...] = (
         device_class=BinarySensorDeviceClass.RUNNING, is_on_fn=_is_running,
     ),
     AuromaticBinaryDescription(
-        key="teleswitch", circuit="sc", message="TeleSwitch",
-        entity_category=EntityCategory.DIAGNOSTIC,
+        # Der Zustand des ZP-Ausgangs. Er steht im Warmwasserkreis, gehört aber
+        # zum Gerät "Zirkulation" -- `cc Status0a` führt ihn zwar auch, kostet
+        # aber einen zweiten Platz in der Warteschlange für denselben Wert.
+        # Am 2026-09-03 gegengeprüft: `write -c cc SetMode on` schaltet beide
+        # zeitgleich auf `on`.
+        key="circulation_pump", circuit="cc", source_circuit="hwc",
+        message="CirPump2", device_class=BinarySensorDeviceClass.RUNNING,
     ),
     AuromaticBinaryDescription(
         key="frost_protection", circuit="sc", message="FrostProtectionEnabled",

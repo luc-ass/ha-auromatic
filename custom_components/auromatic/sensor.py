@@ -16,12 +16,13 @@ from homeassistant.const import (
     UnitOfEnergy,
     UnitOfTemperature,
     UnitOfTime,
+    UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import MODE_OPTIONS
+from .const import HWC_MODE_OPTIONS, MODE_OPTIONS, ROOT_DEVICE
 from .coordinator import AuromaticConfigEntry
 from .ebusd import sum_fields
 from .entity import AuromaticEntity, CircuitMixin
@@ -56,11 +57,19 @@ class AuromaticSensorDescription(SensorEntityDescription, CircuitMixin):
 SENSORS: tuple[AuromaticSensorDescription, ...] = (
     # --- Heizkreis (0x26) ---------------------------------------------------
     AuromaticSensorDescription(
-        key="outside_temp", circuit="hc", message="OutsideTemp",
+        # Grunddaten der Anlage, nicht des Heizkreises: der Regler zeigt die
+        # Außentemperatur im Kopf jeder Anzeige, und `ui OutsideTemp` liefert
+        # zeitgleich denselben Wert.
+        key="outside_temp", circuit="hc", device_circuit=ROOT_DEVICE,
+        message="OutsideTemp",
         status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
-        key="sum_flow", circuit="hc", message="SumFlowSensor",
+        # Der Sammelvorlauf der Anlage, nicht der des Heizkreises -- Gegenstück
+        # ist der Sammelrücklauf, der im Solarkreis steht. Beide am selben
+        # Gerät, sonst sucht man das zweite beim falschen.
+        key="sum_flow", circuit="hc", device_circuit=ROOT_DEVICE,
+        message="SumFlowSensor",
         status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
@@ -102,6 +111,16 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         key="room_offset", circuit="mc", message="RoomTempOffset",
         native_unit_of_measurement=UnitOfTemperature.KELVIN,
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    # --- Zirkulation (0x23) -------------------------------------------------
+    AuromaticSensorDescription(
+        # Dieselbe Aufgabe wie in den Heizkreisen, nur aus einem Feld der
+        # Sammelnachricht: der Select kann "disabled" nicht anzeigen.
+        key="mode_state", translation_key="circulation_mode_state",
+        circuit="cc", message="Mode", field=1,
+        device_class=SensorDeviceClass.ENUM,
+        options=[*HWC_MODE_OPTIONS, "disabled"],
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # --- Warmwasser (0x25) --------------------------------------------------
@@ -154,7 +173,12 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         # am 2026-09-01 über 14 Stunden bei 26,1–26,5 °C, quer durch sechs
         # Pumpenzyklen bei bis zu 77 °C Kollektor -- Kellerniveau, weil der
         # Brenner abgeschaltet ist. Angeschlossen ist er (Status `ok`).
-        key="backflow", circuit="sc", message="SumBackflowSensor",
+        # Liegt im Solarkreis, misst aber den Heizungsrücklauf (14-h-Messreihe,
+        # kein Ausschlag bei sechs Pumpenzyklen). Gehört deshalb neben den
+        # Sammelvorlauf ans Wurzelgerät; `circuit` bleibt `sc`, sonst ändert
+        # sich die `unique_id` und die Historie ist weg.
+        key="backflow", circuit="sc", device_circuit=ROOT_DEVICE,
+        message="SumBackflowSensor",
         status_field=1, suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
@@ -173,6 +197,61 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    # Die Schutz- und Auslegungswerte des Solarkreises. Sie stehen bewusst hier
+    # und nicht in number.py, obwohl alle fünf `r;w` sind und einzeln
+    # geschrieben werden könnten: es sind die geräteseitigen Absicherungen des
+    # Kollektorkreises, dieselbe Sorte Wert wie `FlowTempMax` am Mischerkreis,
+    # den Invariante 3 aus demselben Grund schreibgeschützt lässt. Ein
+    # Bedienelement lädt dazu ein, im Vorbeigehen an einer Übertemperaturgrenze
+    # zu drehen; als Anzeige leisten sie, was gebraucht wird -- man sieht, wie
+    # der Regler eingestellt ist, ohne ans Gerät zu laufen.
+    #
+    # Alle fünf stehen auf Stufe 9 im Poll-Satz -- die billigste Stelle, die
+    # es gibt: die Warteschlange erzeugt keinen Mehrverkehr, sie verteilt ihn
+    # nur um. Siehe poll.py.
+    AuromaticSensorDescription(
+        # Oberhalb dieser Kollektortemperatur schaltet der Regler die
+        # Kollektorpumpe zum Schutz vor Überhitzung ab. Die Freigabe der
+        # Funktion ist der Binärsensor `collector_protection`.
+        key="sol_protection_start", circuit="sc", message="SolProtectionStartTemp",
+        entity_category=EntityCategory.DIAGNOSTIC, **_TEMP,
+    ),
+    AuromaticSensorDescription(
+        # Um so viel muss der Kollektor wieder abkühlen, bevor die
+        # Schutzfunktion endet. Kelvin ohne device_class, sonst rechnet Home
+        # Assistant die Differenz in Fahrenheit um -- wie bei `room_offset`.
+        key="sol_protection_hysteresis", circuit="sc", message="ScProtectionHysteresis",
+        native_unit_of_measurement=UnitOfTemperature.KELVIN,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        key="sol_max_load", circuit="sc", message="SolHwcMaxLoadTemp1",
+        entity_category=EntityCategory.DIAGNOSTIC, **_TEMP,
+    ),
+    AuromaticSensorDescription(
+        # Steht an dieser Anlage auf 0 und ist damit unwirksam.
+        key="coll_temp_min", circuit="sc", message="KolTempMin1",
+        entity_category=EntityCategory.DIAGNOSTIC, **_TEMP,
+    ),
+    AuromaticSensorDescription(
+        # Kein Messwert, sondern die Auslegungsgröße, mit der der Regler selbst
+        # rechnet: Durchsatz der Kollektorpumpe bei 100 % Leistung. Zusammen
+        # mit der Spreizung Kollektor gegen Solarrücklauf ergibt sie die
+        # Leistung, und sie geht in `YieldThisYear` ein.
+        #
+        # Zur Einheit: die aufgelöste CSV, die ebusd lädt, führt das Register
+        # als `UIN` mit Teiler 60 in **l/min**; die neuere TypeSpec-Fassung
+        # nennt einen Typ `flowrate` in l/h. Maßgeblich ist der Messwert --
+        # 3,50 ist als l/min eine übliche Kollektorbestückung, als l/h wäre es
+        # kein Solarkreis.
+        key="sol_flow_rate", circuit="sc", message="SolFlowRate",
+        device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
+        native_unit_of_measurement=UnitOfVolumeFlowRate.LITERS_PER_MINUTE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
     # --- Bedienteil / Systemebene (0x15) ------------------------------------
     # `ui FlowTemp` hatte hier einen eigenen Sensor ("Systemvorlauf"). Er ist
     # entfallen: der Wert ist derselbe wie `hc SumFlowSensor` (Sammelvorlauf) --
@@ -181,7 +260,8 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
     # Entitäten für eine Temperatur sind eine zu viel, und zwei Register dafür
     # zwei zu viel.
     AuromaticSensorDescription(
-        key="system_mode", circuit="ui", message="SystemModeStream1",
+        key="system_mode", circuit="ui", device_circuit=ROOT_DEVICE,
+        message="SystemModeStream1",
         device_class=SensorDeviceClass.ENUM,
         options=["heat", "off", "water", "cool"],
     ),
@@ -193,13 +273,20 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         suggested_display_precision=1, **_TEMP,
     ),
     AuromaticSensorDescription(
-        key="boiler_hours", circuit="ui", message="BoilerHoursB1",
+        # "Ansteuerstunden Gerät 1" nennt es die Reglerdefinition -- gezählt
+        # wird, wie lange der Regler Wärme angefordert hat, nicht wie lange ein
+        # Kessel lief. An dieser Anlage ist der Brenner abgeschaltet und der
+        # Zähler steht; "Betriebsstunden" wäre hier die falsche Auskunft.
+        key="boiler_hours", circuit="ui", device_circuit=ROOT_DEVICE,
+        message="BoilerHoursB1",
         native_unit_of_measurement=UnitOfTime.HOURS,
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     AuromaticSensorDescription(
-        key="yield_year", circuit="ui", message="YieldThisYear",
+        # Den Solarertrag führt das Bedienteil, gesucht wird er beim Solar.
+        key="yield_year", circuit="ui", device_circuit="sc",
+        message="YieldThisYear",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         # Der Zähler fällt im Januar auf null zurück. TOTAL_INCREASING erkennt
@@ -208,12 +295,19 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         value_fn=sum_fields, expose_raw=True,
     ),
     AuromaticSensorDescription(
-        key="yield_last_year", circuit="ui", message="YieldLastYear",
+        key="yield_last_year", circuit="ui", device_circuit="sc",
+        message="YieldLastYear",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         # Kein Zähler, sondern ein feststehender Jahreswert: ohne state_class,
-        # damit er nicht als Verbrauch in die Langzeitstatistik einfließt.
-        entity_category=EntityCategory.DIAGNOSTIC,
+        # damit er nicht als Verbrauch in die Langzeitstatistik einfließt --
+        # beim Jahreswechsel werden alle zwölf Monatswerte auf einmal ersetzt,
+        # und TOTAL_INCREASING läse darin einen frischen Ertrag.
+        #
+        # Keine Diagnose-Kategorie, obwohl er das bis zum 2026-09-03 war: die
+        # ist für Werte über das Gerät gedacht, nicht für Fachdaten. Der
+        # Vorjahresertrag ist dieselbe Größe wie der des laufenden Jahres, und
+        # der einzige Grund, ihn anzusehen, ist der Vergleich mit ihm.
         value_fn=sum_fields, expose_raw=True,
     ),
 )

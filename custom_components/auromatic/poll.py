@@ -32,15 +32,16 @@ Daraus die drei Stufen unten:
 * `POLL_SETTING` (9) -- Sollwerte, Konfiguration und Zählerstände. Sie ändern
   sich selten, und niemand wartet auf sie.
 
-Mit 14 Registern auf 1, vier auf 3 und 16 auf 9 ergeben sich 17,11 Anteile:
-ein Messwert kommt rund alle 1,7 Minuten an die Reihe, ein Bedienelement alle
-5, ein Sollwert alle 15 -- bei unveränderter Buslast gegenüber den 156
+Mit 15 Registern auf 1, fünf auf 3 und 20 auf 9 ergeben sich 18,89 Anteile:
+ein Messwert kommt rund alle 1,9 Minuten an die Reihe, ein Bedienelement alle
+5,7, ein Sollwert alle 17 -- bei unveränderter Buslast gegenüber den 156
 Nachrichten von vorher.
 
 Nachgemessen an einem vollen Tag (2026-09-02, 16 h Laufzeit, damals noch
 21,11 Anteile): der Median zwischen zwei Messwerten lag bei **120 s**,
 gerechnet waren 127. Das Modell stimmt also, und die Zahlen oben sind keine
-Schätzung.
+Schätzung -- es rechnet eher etwas zu pessimistisch, weil fremder Verkehr auf
+dem Bus einzelne Register frisch hält, die ebusd dann überspringt.
 
 **Der Poll-Satz muss vollständig sein.** Steht ein Register hier nicht drin,
 holt ebusd es nicht mehr vom Bus, und `find` liefert bis in alle Ewigkeit den
@@ -108,6 +109,14 @@ POLL_REGISTER_MAXAGE: Final = 3600
 # sechsmal in 16 Stunden, jedes Mal exakt im 19-Minuten-Raster der Stufe 9.
 # Stündlich statt alle 19 Minuten senkt die Trefferwahrscheinlichkeit; den
 # Rest fängt die Überbrückung im Koordinator ab.
+#
+# Nur die Ertragsstatistik steht hier, und das mit Absicht: `read -m` ist der
+# teurere der beiden Wege. Ein Register in der Warteschlange kostet keine
+# einzige zusätzliche Anfrage -- ebusd pollt eine Nachricht je Takt, ob die
+# Liste nun dreißig Einträge hat oder vierzig. Ein `read -m` dagegen geht nach
+# Ablauf des Höchstalters *zusätzlich* auf den Bus. Für Konstanten lohnt sich
+# das nicht; die gehören auf Stufe 9 in die Warteschlange, wo sie nichts
+# kosten außer ein paar Sekunden Latenz für die übrigen.
 READ_MAXAGE: Final[dict[tuple[str, str], int]] = {
     ("ui", "YieldThisYear"): 3600,
     ("ui", "YieldLastYear"): 3600,
@@ -157,6 +166,19 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         "Storage1Sensor2": POLL_MEASURED,
         "TempDesired2": POLL_CONTROL,
         "OperatingMode2": POLL_CONTROL,
+        # Der Zustand der Zirkulationspumpe. Er gehört zum Gerät
+        # "Zirkulation", das Register steht aber im Warmwasserkreis. Auf
+        # Stufe 1, weil eine Pumpe in Minuten schaltet -- und weil sie sonst
+        # der einzige Messwert des Kreises wäre, der nachhinkt.
+        "CirPump2": POLL_MEASURED,
+    },
+    # Der Zirkulationskreis (0x23). Eine einzige Nachricht trägt alles, was
+    # gebraucht wird: Betriebsart (Feld 2) und Reglerzustand. Auf Stufe 3 wie
+    # die übrigen Bedienelemente -- geändert wird sie aus Home Assistant
+    # heraus, wo `write_and_confirm` sie ohnehin sofort zurückliest; die
+    # Warteschlange zählt nur, wenn jemand am Regler selbst dreht.
+    "cc": {
+        "Mode": POLL_CONTROL,
     },
     "sc": {
         "Coll1Sensor": POLL_MEASURED,
@@ -171,20 +193,37 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         "YieldSensor": POLL_MEASURED,
         # Die Kollektorpumpe schaltet in Minuten, nicht in Stunden.
         "SolCollPumpED1": POLL_MEASURED,
-        # Beides sind Einstellungen, keine Zustände. `SolProtection` stand vom
+        # Eine Einstellung, kein Zustand. `SolProtection` stand vom
         # 2026-09-01 bis 2026-09-02 durchgehend auf `on` -- über 27 Stunden,
         # bei Kollektortemperaturen von 14 °C nachts bis 89 °C mittags, gegen
         # eine Schutzschwelle von 130 °C (`SolProtectionStartTemp`). Es meldet
-        # also die freigegebene Funktion, nicht deren Auslösung. `TeleSwitch`
-        # blieb im selben Zeitraum unverändert; ein Telefonschalter ist an
-        # dieser Anlage nicht angeschlossen, und wo einer hängt, handelt der
-        # Regler ohnehin selbst -- die Anzeige darf nachlaufen.
+        # also die freigegebene Funktion, nicht deren Auslösung.
+        #
+        # `TeleSwitch` stand hier bis zum 2026-09-03 daneben. An dieser Anlage
+        # ist kein Telefonschalter angeschlossen und keiner geplant; der
+        # Binärsensor zeigte damit eine Funktion, die es nicht gibt.
         "SolProtection": POLL_SETTING,
-        "TeleSwitch": POLL_SETTING,
         "SolEnableDiffTemp1": POLL_SETTING,
         "SolDisableDiffTemp1": POLL_SETTING,
         "FrostProtectionEnabled": POLL_SETTING,
         "CollPumpHRuntime1": POLL_SETTING,
+        # Die Schutz- und Auslegungswerte des Kollektorkreises. Sie ändern sich
+        # nicht von selbst -- nur jemand am Regler verstellt sie --, und
+        # deshalb stehen sie auf derselben Stufe wie die beiden Schaltdifferenzen
+        # darüber. Fünf Einträge mehr auf Stufe 9 hoben die Anteile am
+        # 2026-09-02 von 17,11 auf 17,67: ein Messwert kam statt alle 103 nun
+        # alle 106 Sekunden dran. Drei Sekunden für fünf Werte, die man sonst
+        # am Gerät ablesen müsste.
+        #
+        # `SolProtectionStartTemp` (130 °C) ist die Schwelle, ab der die
+        # Kollektorpumpe zum Schutz abschaltet, `ScProtectionHysteresis` (30 K)
+        # die Abkühlung, die sie wieder freigibt -- die aufgelöste CSV nennt
+        # beide Werte im Kommentar zu `SolProtection` ausdrücklich zusammen.
+        "SolProtectionStartTemp": POLL_SETTING,
+        "ScProtectionHysteresis": POLL_SETTING,
+        "SolHwcMaxLoadTemp1": POLL_SETTING,
+        "KolTempMin1": POLL_SETTING,
+        "SolFlowRate": POLL_SETTING,
     },
     "ui": {
         # `ui FlowTemp` fehlt hier mit Absicht: es ist derselbe Messwert wie

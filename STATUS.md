@@ -1,6 +1,6 @@
 # Stand der Umsetzung
 
-Stand: 2026-09-02. Planungsdokument mit Herleitung und Registerkarte:
+Stand: 2026-09-03. Planungsdokument mit Herleitung und Registerkarte:
 <https://claude.ai/code/artifact/e2491a1b-e82f-496d-95e7-3a4633908ec0>
 
 ---
@@ -21,7 +21,7 @@ Stand: 2026-09-02. Planungsdokument mit Herleitung und Registerkarte:
 | Circuit | Adresse | Bedeutung | CSV |
 |---|---|---|---|
 | `ui` | 0x15 | Bedienteil, Systemebene | `vaillant/15.ui.csv` |
-| `cc` | 0x23 | Zentralteil (nur lesend) | `vaillant/23.solsy.cc.csv` |
+| `cc` | 0x23 | **Zirkulationskreis** | `vaillant/23.solsy.cc.csv` |
 | `hwc` | 0x25 | Warmwasser | `vaillant/25.solsy.hwc.csv` |
 | `hc` | 0x26 | Heizkreis (Radiatoren) | `vaillant/26.solsy.hc.csv` |
 | `mc` | 0x50 | **Mischerkreis = Fußbodenheizung** | `vaillant/50.solsy.mc.csv` |
@@ -60,7 +60,7 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Altlast: der MQTT-Handler von ebusd setzt Poll-Prioritäten
   (`setPollPriority` → `addPollMessage`) und spannte damit den
   156-Nachrichten-Poll-Satz auf, aus dem sich der Zwischenspeicher füllte, den
-  `find` liest. Diese Aufgabe hat jetzt `poll.py` mit 34 Registern. Die 158
+  `find` liest. Diese Aufgabe hat jetzt `poll.py` mit 40 Registern. Die 158
   MQTT-Entitäten sind verschwunden.
 - **`scan` springt immer wieder kurz auf `running`.** Vermutlich die beiden
   Master `0x3f` / `0x7f`, die sich nicht identifizieren lassen. Folge: ein
@@ -86,10 +86,41 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   sein konnten. Damit gilt, was die Bedienungsanleitung beschreibt: „Differenz
   zwischen Kollektortemperatur und Speichertemperatur".
 
-  Beide Register sind `r;w` vom Typ `temp0`, also nur ganze Kelvin. Weitere
-  Solarparameter am Bus, bislang nicht eingebunden: `ScProtectionHysteresis`
-  (30), `SolProtectionStartTemp` (130), `SolHwcMaxLoadTemp1` (90),
-  `KolTempMin1` (0), `SolFlowRate` (3,50).
+  Beide Register sind `r;w` vom Typ `temp0`, also nur ganze Kelvin. Die
+  übrigen Solarparameter sind seit 2026-09-02 als Diagnose-Sensoren
+  eingebunden: `SolProtectionStartTemp` (130), `ScProtectionHysteresis` (30),
+  `SolHwcMaxLoadTemp1` (90), `KolTempMin1` (0), `SolFlowRate` (3,50).
+  Lesend, obwohl alle fünf `r;w` und einfeldrig sind — es sind die
+  geräteseitigen Absicherungen des Kollektorkreises, dieselbe Sorte Wert wie
+  `mc FlowTempMax`, den Invariante 3 aus demselben Grund schreibgeschützt
+  lässt. `SolFlowRate` ist ohnehin kein Stellwert, sondern die Auslegungsgröße,
+  mit der der Regler den Ertrag rechnet.
+- **Die Reglerbezeichnungen stehen in der archivierten CSV, nicht in der
+  TypeSpec-Fassung.** `john30/ebusd-configuration` führt die aktuelle
+  Definition unter `src/vaillant/*.tsp` — dort ist jedes Register nur mit einem
+  englischen Entwicklerkommentar beschriftet. Die aufgelöste Altfassung unter
+  `archived/de/vaillant/*.csv` trägt zusätzlich die **deutsche Bezeichnung aus
+  dem Reglermenü** und einen ausführlicheren Kommentar. Wo die Frage lautet
+  „wie heißt das Ding am Gerät", ist das die Quelle:
+
+  | Register | Bezeichnung in der CSV | Kommentar |
+  |---|---|---|
+  | `sc SolProtection` | Solarkreisschutzfunktion, `r;w` | „Wird der hier eingestellte Wert überschritten, dann wird die Kollektorpumpe des betroffenen Kreises zum Schutz vor Überhitzung der Komponenten abgeschaltet. Die Kollektortemperatur muß 30K unter diesen Wert sinken um die Schutzfunktion zu verlassen." |
+  | `sc Storage4Sensor3` | **TD1 Sensor** | englisch daneben „Temperature of SP4 sensor" — der englische Kommentar ist hier der falsche |
+  | `sc SumBackflowSensor` | **TD2 Sensor** | — |
+  | `sc SolEnableDiffTemp1` | Einschaltdifferenz 1 | „Temperaturdifferenz zwischen KOL1 und **Speicher unten** ab der die Kollektorpumpe gestartet wird" |
+
+  Damit sind drei Dinge belegt, die vorher auf Messreihen standen: der
+  Bezugsfühler der Solarhysterese ist der Speicher unten (nicht TD1),
+  `SolProtection` ist die *Freigabe* der Schutzfunktion und kein Zustand, und
+  die 30 K aus ihrem Kommentar sind genau `ScProtectionHysteresis`. Die
+  Beschriftung „Fühler TD1" für `Storage4Sensor3` ist bestätigt.
+
+  Nicht belegt ist damit der Name „Sammelrücklauf" für `SumBackflowSensor`:
+  die CSV nennt ihn TD2. Beides stimmt — das Register *ist* der TD2-Eingang
+  der Differenztemperaturregelung, der Fühler daran hängt an dieser Anlage im
+  Heizungsrücklauf (14 h Messreihe, kein Ausschlag bei sechs Pumpenzyklen).
+  Der Oberflächenname beschreibt, was er misst, nicht, wo er angeklemmt ist.
 - **`sc SolCollPumpED1` ist kein Modulationsgrad.** Die Kollektorpumpe kennt
   nur 100 (ein) und 0 (aus). Sie ist deshalb ein Binärsensor, kein
   Prozentsensor -- eine Einschaltdauer, die nie zwischen den Werten steht,
@@ -149,11 +180,132 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Kollektortemperaturen von 14 °C nachts bis 89 °C mittags — gegen eine
   Schutzschwelle von 130 °C (`SolProtectionStartTemp`). Gemeldet wird die
   freigegebene Funktion, nicht ihre Auslösung. Es liegt deshalb seit dem
-  2026-09-02 auf Stufe 9, ebenso `TeleSwitch`, der im selben Zeitraum
-  unverändert blieb. Beide sind ohnehin Diagnose-Entitäten. *Offen: die
+  2026-09-02 auf Stufe 9 und ist ohnehin eine Diagnose-Entität. *Offen: die
   Nachrichtendefinition selbst (`ebusctl find -e -c sc SolProtection`) würde
   den Namen bestätigen; die Messreihe genügt für die Poll-Stufe, nicht
   zwingend für die Beschriftung.*
+- **`cc` ist der Zirkulationskreis, nicht der „Zentralteil".** Der Kopf von
+  `23.solsy.cc.csv` nennt ihn `0020080463 163 Circulation`, und die Anlage
+  bestätigt es (2026-09-03, direkt über `ebusctl` gelesen):
+  `cc Mode = 30;auto;off;circulation;00;night` — das Feld `mctype` steht auf
+  `circulation`, der ZP-Ausgang des Reglers ist also konfiguriert. Der Kreis
+  lädt dieselben Includes wie das Warmwasser (`hwcmode.inc`, `timer.inc`) und
+  bringt damit alles mit, was zur Steuerung nötig ist:
+
+  | Register | Typ | Bedeutung | Wert am 2026-09-03 |
+  |---|---|---|---|
+  | `cc Mode` Feld 2 | `r`, `hwcmode` | Betriebsart der Zirkulationspumpe | `auto` |
+  | `cc SetMode` | `w`, ein Feld, `hwcmode` | Betriebsart setzen (B505 `02`) | — |
+  | `cc Mode` Feld 4 | `r`, `hwcmode` | **Teleswitch-Betriebsart**, siehe unten | `off` |
+  | `cc Status0a` Feld 3 | `r`, `onoff` | Pumpenzustand | `off` |
+  | `cc Timer_Monday..Sunday` | `r;w` | Zeitprogramm, drei Fenster je Tag | alle leer |
+  | `hwc CirPump2` | `r`, `onoff` | Zustand der Zirkulationspumpe | `off` |
+
+  **Der Regler schaltet die Pumpe derzeit nie von selbst.** Die Betriebsart
+  steht zwar auf `auto`, aber alle sieben Zeitprogramme sind auf Fenster der
+  Länge null gesetzt (`10:20;10:20;16:00;16:00;22:00;22:00`) — passend dazu,
+  dass die Zirkulation an dieser Anlage bisher extern gesteuert wird. **Die
+  Pumpe hängt derzeit nicht am ZP-Ausgang** (vom Nutzer bestätigt, 2026-09-03);
+  die Verdrahtung folgt, der Regelweg steht.
+
+  **Der Regler führt das Einzelfeld-Register 2B00 sehr wohl — ebusd kennt es
+  für `cc` nur nicht.** `23.solsy.cc.csv` bindet allein `hwcmode.inc` ein, also
+  fehlt der Lesename. Über `hex` (im Add-on freigeschaltet am 2026-09-03) ist
+  es direkt lesbar:
+
+  | Rohbefehl | Antwort | Bedeutung |
+  |---|---|---|
+  | `hex 23b509030d2b00` | `0103` | Betriebsart `auto`, deckt sich mit `cc Mode` Feld 2 |
+  | `hex 23b509030d3200` | `013c` | 30,0 °C, deckt sich mit `cc Mode` Feld 1 |
+  | `hex 23b509030d3f00` | `0102` | Teleswitch-Betriebsart `off` |
+  | `hex 26b509030d2b00` | `0102` | Gegenprobe: `hc OperatingMode` = `off` |
+
+  Geschrieben wird trotzdem über `cc SetMode` — eine eigene CSV wäre ein Fork
+  der Community-Konfiguration, und `define` ist im Add-on nicht freigeschaltet.
+  Das ist unbedenklich: `SetMode` trägt genau ein Feld (Invariante 1 bleibt
+  gewahrt) und hat denselben Datentyp wie das gelesene Feld, verliert also
+  keine Auflösung. Die Ausnahme von Invariante 2 steht benannt in
+  `const.WRITE_EXCEPTIONS`.
+- **Das vierte Feld der Sammelnachricht `Mode` ist die Teleswitch-Betriebsart.**
+  Am 2026-09-03 gegengelesen: `hwc Mode` Feld 4 = `off` = `hwc
+  TeleswitchOperatingMode2`, `mc Mode` Feld 5 = `low` = `mc
+  TeleswitchOperatingMode`. Die Vermutung in `water_heater.py`, dort stehe die
+  Zirkulation, war falsch und ist korrigiert. Für die Schreiblogik ändert das
+  nichts — die Sammelnachricht wird ohnehin nie beschrieben.
+- **Die archivierte CSV trägt auch die Bezeichnungen der Messwerte.** Nicht nur
+  die Betriebsarten (siehe unten) -- jede Zeile in `archived/de/vaillant/*.csv`
+  führt den deutschen Namen aus dem Reglermenü. Daraus stammen seit dem
+  2026-09-03:
+
+  | Register | CSV-Bezeichnung | Name in Home Assistant |
+  |---|---|---|
+  | `hc/mc FlowTempDesired` | Vorlaufsolltemperatur | Vorlaufsolltemperatur |
+  | `mc FlowTemp` | VF2 Sensor | Vorlauftemperatur |
+  | `hc FlowTempMax` | Max. Vorlauftemp. | Maximale Vorlauftemperatur |
+  | `mc FlowTempMax` | Maximaler Vorlaufsollwert | Maximale Vorlauftemperatur |
+  | `ui BoilerHoursB1` | **Ansteuerstunden Gerät 1** | Ansteuerstunden Wärmeerzeuger |
+  | `sc SolFlowRate` | Volumenstrom Solarkreis | Volumenstrom |
+  | `hc SumFlowSensor` | VF1 | Sammelvorlauf |
+  | `sc Coll1Sensor` | KOL1 Sensor | Kollektor |
+
+  Wörtlich übernommen wird sie nicht überall, und mit Grund: `VF1`, `VF2
+  Sensor` und `KOL1 Sensor` sind Klemmenbezeichnungen, keine Begriffe. Der
+  Oberflächenname sagt, was gemessen wird -- dieselbe Linie wie beim
+  Sammelrücklauf. Wo die CSV dagegen einen echten Begriff führt, gilt er:
+  `BoilerHoursB1` zählt **Ansteuerstunden**, also die Zeit, die der Regler
+  Wärme angefordert hat, und nicht die Laufzeit eines Kessels. An dieser
+  Anlage, deren Brenner abgeschaltet ist, war „Betriebsstunden Kessel" die
+  falsche Auskunft.
+
+  Nicht belegbar bleiben die fünf Solar-Grenzwerte und `FlowTempMax` als
+  Menütexte: sie stehen in der Fachhandwerkerebene, und die
+  Installationsanleitung liegt nur als Bild vor.
+- **Ein Fühler, drei Entitäten.** `Storage1Sensor2` erscheint als Zustand des
+  `water_heater`, als Sensor „Speichertemperatur" am Warmwasser und als
+  „Speicherfühler 1 (oben)" am Solar. Der dritte ist gewollt (die
+  Solarschichtung braucht ihn neben Fühler 2), der zweite ist eine Dopplung des
+  ersten. Er bleibt, weil ein Entfernen die Statistik wegwirft; wer neu
+  aufsetzt, braucht ihn nicht.
+- **Die Betriebsarten heißen am Bedienteil anders, als der Datentyp nahelegt
+  — und zwar je Kreis verschieden.** Bedienungsanleitung 0020094390:
+
+  | ebusd | Heizkreise (Tab. 3.2) | Warmwasser + Zirkulation (Tab. 3.3) |
+  |---|---|---|
+  | `auto` | Auto | Auto |
+  | `on` | **Heizen** | **Ein** |
+  | `eco` | Eco | — |
+  | `low` | **Absenken** | — |
+  | `off` | Aus | Aus |
+
+  Die Grundanzeige des Reglers belegt es wörtlich: `HK1 Heizen 22 °C`,
+  `Etage1 Eco 20 °C`, `Speicher Auto 60 °C`. Bis zum 2026-09-03 stand in Home
+  Assistant „Zeitprogramm / Dauerbetrieb / Absenkung" — eine Beschriftung, die
+  nirgends am Gerät auftaucht. Ebenso die beiden Sollwerte: das Menü nennt sie
+  „Raumsolltemperatur" und „Absenktemperatur", nicht „Raumsoll Tag" und
+  „Raumsoll Absenkung".
+
+  Dass `on` in zwei Kreisen verschieden heißt, löst `translation_key` in der
+  Beschreibung: der `key` bleibt und mit ihm die `unique_id`, nur die
+  Beschriftung weicht ab (`circulation_mode`, `circulation_mode_state`).
+
+  **Der Warmwasserkreis bot zwei Betriebsarten zu viel an.** `hwc
+  OperatingMode2` ist in der ebusd-Konfiguration als `mcmode` deklariert und
+  nähme `eco` und `low` an; Tab. 3.3 kennt für Warmwasser und Zirkulation aber
+  nur Auto, Ein und Aus. Die `operation_list` des Speichers ist deshalb seit
+  dem 2026-09-03 auf diese drei gekürzt.
+
+  Nicht abbildbar bleibt eine Anzeige des Bedienteils: läuft das
+  Ferienprogramm, zeigt der Regler **„Urlaub"** anstelle der Betriebsart und
+  lässt sie nicht verstellen. Unsere Entitäten zeigen weiter die darunter
+  liegende Betriebsart. `hc IsInHoliday` (2700) wäre der Weg dorthin, ist aber
+  nicht eingebunden.
+- **Kein Telefonschalter, und keiner geplant.** `sc TeleSwitch` stand vom
+  2026-09-01 bis 2026-09-03 unverändert auf `off` — an dieser Anlage ist der
+  Eingang nicht belegt. Der Binärsensor „Telefonschalter" zeigte damit eine
+  Funktion, die es nicht gibt; er ist am 2026-09-03 samt Poll-Eintrag
+  entfallen. Der gleichnamige Eingang des Warmwasserkreises (`hwc TeleSwitch`)
+  war ohnehin nie eingebunden, ebenso wenig die beiden
+  `TeleswitchOperatingMode`-Register.
 - **Keine brauchbare Raumtemperatur.** `ui RoomTemp` liefert zwar gültige Werte
   (~30 °C), das Bedienteil hängt aber im Heizungsraum. Als Führungsgröße
   bestätigt unbrauchbar.
@@ -192,12 +344,12 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
 |---|---|
 | `ebusd.py` | Asynchroner TCP-Client für Port 8888, `parse_field`, Filterlogik |
 | `coordinator.py` | `DataUpdateCoordinator`, ein `find` pro Kreis je Intervall |
-| `poll.py` | Welche 34 Register ebusd aktiv vom Bus holen soll, in drei Prioritäten |
+| `poll.py` | Welche 40 Register ebusd aktiv vom Bus holen soll, in drei Prioritäten |
 | `entity.py` | `CircuitMixin` + Basisklasse, Gerätezuordnung per `via_device` |
 | `config_flow.py` | Einrichtung inkl. Adress-Suche, Options-Flow für das Intervall |
-| `sensor.py` | Temperaturen, Erträge, Laufzeiten, Systemzustand |
-| `binary_sensor.py` | Störung, Kollektorpumpe, Telefonschalter, Frost- und Kollektorschutz |
-| `select.py` | **Betriebsart** für `hc` und `mc` — der zentrale Steuerhebel |
+| `sensor.py` | Temperaturen, Erträge, Laufzeiten, Systemzustand, Solar-Grenzwerte |
+| `binary_sensor.py` | Störung, Kollektor- und Zirkulationspumpe, Frost- und Kollektorschutz |
+| `select.py` | **Betriebsart** für `hc`, `mc` und `cc` — der zentrale Steuerhebel |
 | `number.py` | Raumsollwerte Tag/Absenkung, Heizkurve, Solarhysterese |
 | `water_heater.py` | Speicher: Ist, Soll, Betriebsart |
 | `diagnostics.py` | Vollständiger Registerbestand plus `ebusctl info`, Host redigiert |
@@ -211,7 +363,7 @@ Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
 - ebusd-Protokollschicht gegen wortgetreue Antwortdaten der Anlage
   (`tests/test_ebusd.py`, 40 Prüfungen).
 - Vollständigkeit von Übersetzungen und Icons gegen den Entitätsbestand
-  (`tests/test_translations.py`, 297 Prüfungen).
+  (`tests/test_translations.py`, 393 Prüfungen).
 - Dataclass-Komposition der Description-Klassen (Mehrfachvererbung mit
   `frozen=True, kw_only=True`) gegen strukturgleiche Nachbauten.
 - **Bedienung in Home Assistant:** Die Integration lädt, die Betriebsart lässt
@@ -263,11 +415,70 @@ Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
   die Optionen auch in den Diagnosedaten, damit das nächste Mal niemand
   wieder raten muss.
 
+- **Die fünf Solar-Grenzwerte am Gerät gesehen** (2026-09-03, knapp zwei
+  Stunden nach dem HA-Neustart mit dem neuen Satz, gelesen über die REST-API
+  von HA 2026.9.0). Alle fünf Register antworten und tragen plausible Werte:
+  `SolProtectionStartTemp` 130 °C, `ScProtectionHysteresis` 30 K,
+  `SolHwcMaxLoadTemp1` 90 °C, `KolTempMin1` 0 °C, `SolFlowRate` 3,50.
+  Damit ist auch die **Einheit von `SolFlowRate` bestätigt**: die Entität zeigt
+  3,5 l/min, wie die aufgelöste CSV es mit `UIN` und Teiler 60 vorgibt; die
+  TypeSpec-Fassung mit `flowrate` in l/h ist für diese Anlage die falsche.
+  43 Entitäten, keine einzige `unavailable`, Messwerte zuletzt vor 113–368 s
+  aktualisiert. `scan: finished`, `reconnects: 0`.
+- **`poll: 43` statt der erwarteten 39** -- und das ist richtig so. Die Liste
+  kann zur Laufzeit nur wachsen (siehe `poll.py`): ebusd lief seit der
+  Anmeldung des alten 38er-Satzes durch, die fünf neuen Register kamen dazu,
+  gestrichene bleiben bis zum nächsten ebusd-Neustart stehen. Der Koordinator
+  vergleicht mit `polled >= expected` und meldet deshalb nicht in jeder Runde
+  neu an. Wer die 39 sehen will, muss ebusd neu starten, nicht Home Assistant.
+- **Der Schreibweg des Zirkulationskreises am laufenden Regler** (2026-09-03,
+  direkt über die Kommandoschnittstelle von ebusd, Roundtrip mit
+  Wiederherstellung):
+
+  | Schritt | `cc Mode` Feld 2 | 2B00 roh | `hwc CirPump2` | `cc Status0a` |
+  |---|---|---|---|---|
+  | Ausgang | `auto` | `0103` | `off` | `-;off;off;off;0` |
+  | `write -c cc SetMode on` | `on` | `0101` | **`on`** | `-;off;on;on;0` |
+  | `write -c cc SetMode off` | `off` | — | `off` | — |
+  | `write -c cc SetMode auto` | `auto` | `0103` | `off` | — |
+
+  Drei Dinge sind damit belegt: der ZP-Ausgang folgt dem Befehl ohne
+  Verzögerung, `SetMode` schreibt tatsächlich das Register 2B00, und
+  `hwc CirPump2` ist die richtige Rückmeldung dafür. Die Anlage stand danach
+  wieder auf dem Ausgangswert. Was der Test **nicht** zeigt, ist die
+  Verdrahtung: die Pumpe hängt derzeit nicht am Ausgang.
+
+- **Der vollständige Bestand nach dem Umbau** (2026-09-03, nach dem Neustart
+  mit `async_warm_cache`): **45 Entitäten, keine einzige ohne Wert** -- weder
+  `unavailable` noch `restored`. Alle 42 Register des Poll-Satzes tragen einen
+  Wert, `scan: finished`, `reconnects: 0`, kein einziger Protokolleintrag zur
+  Integration. Die Gerätezuordnung steht wie entworfen: sechs Anlagenwerte am
+  Regler, einer am Bedienteil, drei an der Zirkulation, achtzehn am Solar.
+  Die sieben Entitäten, die beim Neustart neu entstanden sind, haben genau die
+  vorhergesagten `entity_id` bekommen -- Home Assistant bildet sie aus Bereich,
+  Gerät und Entitätsname.
+- **Der Schreibweg der Zirkulation durch Home Assistant selbst** (2026-09-03),
+  nicht mehr nur über `ebusctl`: `select.select_option` auf `on` setzt das
+  Rohregister 2B00 auf `0101`, Auswahl und Reglerzustand folgen sofort, das
+  Zurücksetzen auf `auto` stellt `0103` wieder her. Kein Zurückspringen der
+  Oberfläche -- `write_and_confirm` tut, was es soll.
+
 ### Nicht verifiziert
 
 Vorausgesetzt wird **HA 2024.6+** (wegen `entry.runtime_data`); getestet auf
-**HA 2026.8.3**. Nicht durchgespielt ist der Weg über die Oberfläche selbst --
+**HA 2026.9.0**. Nicht durchgespielt ist der Weg über die Oberfläche selbst --
 geprüft wurde über Dienstaufrufe, die dieselben Entitätsmethoden ausführen.
+
+**`mc RoomTempOffset` hat derzeit keine Entität.** Erwartet waren 44
+Entitäten (46 Beschreibungen minus `sc Coll2Sensor` und `sc Storage3Sensor3`,
+beide `cutoff`), gezählt sind 43. Das Register ist nur schreibend definiert und
+steht deshalb in `POLL_EXEMPT`; einen Wert hat es nur, solange ebusd einen
+Schreibvorgang des Bedienteils passiv mitgehört hat. Am 2026-09-01 lag einer
+vor, am 2026-09-03 nicht mehr -- vermutlich hat ein Rescan das
+Nachrichtenobjekt samt Zwischenspeicher ersetzt. Entitäten entstehen nur, wo
+beim Setup ein Wert vorliegt, also fehlt sie seither. Sie kommt beim nächsten
+HA-Neustart wieder, wenn das Bedienteil bis dahin den Offset geschrieben hat.
+Kein Fehler im Poll-Satz: die anderen 43 sind vollständig und frisch.
 
 ---
 
@@ -344,13 +555,24 @@ wäre.
 Die Liste ist eine Prioritätswarteschlange — nach jedem Abruf rückt eine
 Nachricht um ihren Prioritätswert nach hinten, niedrige Zahl heißt häufiger.
 Daraus drei Stufen in `poll.py`: 14 Messwerte auf 1, vier Bedienelemente
-(Betriebsarten beider Kreise, Warmwassersollwert und -betriebsart) auf 3, 16
+(Betriebsarten beider Kreise, Warmwassersollwert und -betriebsart) auf 3, 20
 Sollwerte und Zähler auf 9. Sollwerte brauchen die Warteschlange kaum, weil
 `write_and_confirm` sie nach jeder Änderung ohnehin mit `read -f` frisch holt;
 sie stehen nur drin, falls jemand direkt am Regler dreht — die Bedienelemente
 deshalb in der Mitte, weil dieser Fall bei ihnen der wahrscheinlichste ist.
-Rechnerisch: ~1,7 Minuten für einen Messwert, ~5 für ein Bedienelement, ~15
+Rechnerisch: ~1,8 Minuten für einen Messwert, ~5,3 für ein Bedienelement, ~16
 für einen Sollwert, bei unveränderter Buslast.
+
+Dass die Buslast dabei wirklich unverändert bleibt, ist der Grund, warum die
+fünf Solar-Grenzwerte (2026-09-02) in die Warteschlange gewandert sind und
+nicht in `READ_MAXAGE`: ebusd pollt eine Nachricht je Takt, ob die Liste
+dreißig Einträge hat oder vierzig. Ein `read -m` dagegen geht nach Ablauf des
+Höchstalters *zusätzlich* auf den Bus. Fünf Register auf Stufe 9 kosten
+deshalb nichts als drei Sekunden Latenz für die übrigen: 17,11 Anteile wurden
+am 2026-09-02 zu 17,67, ein Messwert kam statt alle 103 nun alle 106 Sekunden
+dran. Seit dem Wegfall des Telefonschalters und dem Hinzukommen des
+Zirkulationskreises (beides 2026-09-03) sind es 18,89 — ein Messwert alle
+113 Sekunden.
 
 Das Modell ist nachgemessen: mit den 21,11 Anteilen des ersten Satzes sagte es
 127 s voraus, der Median über einen vollen Tag lag bei 120 s.
@@ -377,11 +599,69 @@ Umgesetzt: `has-entity-name`, `entity-unique-id`, `runtime-data`,
 Offen bleiben allein die Punkte, die eine HA-Testumgebung voraussetzen
 (`config-flow-test-coverage`, `test-coverage`) und die Platin-Stufe.
 
+**Bedienelement oder Konfiguration.** Ein schreibbarer Wert ohne
+`entity_category` steht gleichrangig neben dem, was man täglich anfasst. Das
+sind an dieser Anlage genau drei Größen: die beiden Raumsollwerte und die
+Betriebsart. Alles andere ist Auslegung -- die **Heizkurve** wird einmal
+eingestellt und nicht nach Bedarf gedreht, die beiden Solar-Schaltdifferenzen
+erst recht. Seit dem 2026-09-03 tragen alle vier `EntityCategory.CONFIG`.
+
+Bei den Schaltdifferenzen stand sie schon vorher da, aber im gemeinsamen
+`_DIFF`-Bündel neben Einheit und Schrittweite -- an der Beschreibung nicht
+ablesbar, und für `tests/test_translations.py` unsichtbar, das die
+Beschreibungen per `ast` liest. Sie steht jetzt bei jeder Entität einzeln, und
+der Test verlangt genau das: außerhalb der drei Alltagsgrößen muss die
+Kategorie an der Beschreibung selbst stehen.
+
+**Die Diagnose-Kategorie ist für Werte über das Gerät, nicht für Fachdaten.**
+Sie steckt Entitäten in eine eingeklappte Gruppe -- richtig für Laufzeitzähler,
+geräteseitige Grenzwerte, den abgeleiteten Reglerzustand und den Raumfühler,
+der als Führungsgröße unbrauchbar ist. Falsch war sie beim **Solarertrag des
+Vorjahres**: dieselbe Fachgröße wie der laufende Ertrag, nur ein Jahr älter,
+und der einzige Grund, ihn anzusehen, ist der Vergleich mit ihm. Seit dem
+2026-09-03 stehen beide in derselben Gruppe. Der Unterschied zwischen ihnen
+gehört in die `state_class` und steht auch nur dort: das laufende Jahr ist ein
+Zähler (`TOTAL_INCREASING`, fällt im Januar auf null), das Vorjahr ein
+feststehender Wert ohne `state_class` -- beim Jahreswechsel werden alle zwölf
+Monatswerte auf einmal ersetzt, und ein Zähler läse darin einen frischen
+Ertrag.
+
+**Geräte bilden die Anlage ab, nicht die Busadressen.** ebusd führt jedes
+Register unter genau einer Adresse; wo es hingehört, ist damit nicht gesagt.
+Sechs Werte gehören der Anlage und nicht einem Kreis -- Außentemperatur,
+Sammelvorlauf, Sammelrücklauf, Systemzustand, Störung und die Ansteuerstunden
+--, zwei weitere stehen im falschen Kreis: den Solarertrag zählt das
+Bedienteil, gesucht wird er beim Solar. Dafür gibt es `device_circuit` in der
+Beschreibung. Es steuert **nur** die Gerätezuordnung; `circuit` bleibt, wo es
+war, denn es steckt in der `unique_id`, und `source_circuit` bestimmt weiterhin
+allein den Leseweg. Drei Felder, drei Fragen: woher lesen, wohin schreiben,
+wo anzeigen.
+
+Belegt statt vermutet: `hc OutsideTemp` und `ui OutsideTemp` lieferten am
+2026-09-03 zeitgleich 17,81 °C, und `Currenterror` trägt in `hc`, `cc` und `sc`
+denselben Inhalt -- es ist der Fehlerspeicher des Reglers, kein Kreiswert.
+
+Zwei Nebenwirkungen, beide bewusst in Kauf genommen: das Gerät „Bedienteil"
+behält genau eine Entität (den Raumfühler, der wirklich dort hängt), und der
+Heizkreis hat keinen eigenen Messwert mehr -- sein Vorlauf *ist* der
+Sammelvorlauf der Anlage (`VF1`, identisch mit `ui FlowTemp`). Und die
+`entity_id` folgt der Verschiebung nicht: Home Assistant vergibt sie einmalig
+beim Anlegen aus Geräte- und Entitätsnamen. Wer sie geradeziehen will, benennt
+sie von Hand um; die `unique_id` und damit die Historie bleiben in jedem Fall.
+
+**Beschriftungen folgen dem Bedienteil, nicht dem Datentyp.** Wer bei einer
+Störung am Regler steht, soll dort dieselben Wörter lesen wie in Home
+Assistant. Maßgeblich ist die Bedienungsanleitung 0020094390; die Einzelheiten
+stehen oben unter „Die Betriebsarten heißen am Bedienteil anders". Wo derselbe
+Rohwert je Kreis anders heißt, trennt `translation_key` die Beschriftung vom
+`key` -- letzterer steckt in der `unique_id` und darf sich nie ändern.
+
 **Icons folgen der `device_class`.** Sie bestimmt Einheit, Darstellung und
 Standardsymbol; ein eigenes `icon` steht nur da, wo es keine `device_class`
 gibt (Enums, nackte Zahlen, Schalter) oder wo deren Symbol nichts über das
-Gerät sagt -- `RUNNING` liefert nur ein Play-Zeichen, die Pumpe bekommt
-`mdi:pump`. Temperaturen behalten bewusst ihr zustandsabhängiges Thermometer,
+Gerät sagt. Beide Pumpen tragen `RUNNING` und behalten dessen Symbol; ein
+`mdi:pump` daneben stand einmal im Plan und ist nie eingebaut worden.
+Temperaturen behalten bewusst ihr zustandsabhängiges Thermometer,
 sonst geht die Ablesbarkeit gegen ein hübscheres Symbol verloren.
 
 **Einzelfeld-Register statt Read-Modify-Write.** Ursprünglich war RMW auf
@@ -460,21 +740,37 @@ ohne HA-Installation.
    (`HmIP-FALMOT-C12`) oder nur auf/zu.
 4. **Kessel später ergänzen.** Wenn der Brenner wieder läuft, erscheint
    vermutlich eine `bai`-Adresse am Bus. Dann Scan wiederholen.
-5. **Weitere Solarparameter**, falls gewünscht: Kollektorschutz-Schwelle und
-   -Hysterese, maximale Speicherladetemperatur, Mindest-Kollektortemperatur.
-   Alle `r;w`, alle vorhanden — bislang bewusst nicht eingebunden.
-6. **Zwei Beschriftungen auf Verdacht.** `sc SolProtection` ist nach 27 h
-   Messreihe eine Einstellung und kein Zustand — die Nachrichtendefinition
-   (`ebusctl find -e -c sc SolProtection`) würde das schwarz auf weiß
-   bestätigen. Und `sc Storage4Sensor3` heißt „Fühler TD1", weil der Regler
-   ihn so listet; was er misst, ist damit noch nicht gesagt. Er folgt weder
-   dem Kollektor noch dem Speicher, fällt aber bei laufender Pumpe deutlich
-   ab.
-7. **`ui YieldThisYear` wird doppelt so oft abgefragt wie `YieldLastYear`**
+5. **`ui YieldThisYear` wird doppelt so oft abgefragt wie `YieldLastYear`**
    (72 gegen 36 Anfragen bei gleicher Priorität). Beide stehen inzwischen
    außerhalb der Warteschlange, der Punkt ist damit unkritisch — die Frage
    bleibt trotzdem offen.
-8. **HACS-Struktur** bewusst zurückgestellt.
+6. **HACS-Struktur** bewusst zurückgestellt.
+7. **Zeitprogramme des Reglers.** 28 Register, vier Kreise mit je sieben Tagen
+   (`hc`, `mc`, `hwc`, `cc`; `sc` und `ui` haben keine), alle `r;w` vom Typ
+   `timer` — drei Fenster je Tag plus Tagesauswahl. Zurückgestellt, und die
+   Darstellung ist der Grund: **eine `schedule`-Entität kann eine Integration
+   nicht anlegen.** `homeassistant/components/schedule/manifest.json` führt
+   `"integration_type": "helper"`, die Klasse ist `Schedule(CollectionEntity)`
+   aus einer Storage-Collection, und die `Platform`-Aufzählung (inzwischen in
+   `homeassistant/generated/entity_platforms.py`) kennt kein `SCHEDULE` — es
+   gibt also keine Plattform, an die ein Config-Entry weiterreichen könnte.
+   Der gangbare Weg wäre `calendar`: eine reguläre Plattform, bei der
+   Schreiben ein optionales Feature ist (`CalendarEntityFeature.CREATE_EVENT`),
+   also read-only sein darf. Nur ist die Optik eine Kalenderansicht, kein
+   Wochenraster. Bis dahin werden die Zeitfenster am Regler selbst gesetzt.
+8. **Verdrahtung der Zirkulationspumpe.** Der Regelweg steht und ist geprüft,
+   die Pumpe hängt aber noch an ihrer externen Steuerung. Nach dem Rückbau auf
+   den ZP-Ausgang ist zu prüfen, ob sie beim Schalten der Betriebsart wirklich
+   anläuft — `hwc CirPump2` zeigt nur, was der Regler anfordert.
+
+Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
+Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
+siehe „Die Reglerbezeichnungen stehen in der archivierten CSV" unten.
+
+Erledigt am 2026-09-03: der Zirkulationskreis ist eingebunden (Gerät
+„auroMATIC Zirkulation" mit Betriebsart, Reglerzustand und Pumpenzustand), der
+Binärsensor „Telefonschalter" ist ersatzlos entfallen — an dieser Anlage ist
+kein Telefonschalter angeschlossen und keiner geplant.
 
 ## 6. Versionsverwaltung
 

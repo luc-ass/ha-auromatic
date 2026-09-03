@@ -49,10 +49,14 @@ _ROOM = {
 # Temperaturdifferenzen, keine Temperaturen: Kelvin ohne device_class, sonst
 # rechnet Home Assistant sie in Fahrenheit um. Der Regler nimmt hier nur ganze
 # Kelvin an (Datentyp "temp0").
+#
+# Die Kategorie stand bis zum 2026-09-03 mit in diesem Bündel und war damit an
+# der Beschreibung nicht ablesbar -- weder für einen Leser noch für
+# tests/test_translations.py, das die Beschreibungen per `ast` ausliest. Sie
+# steht jetzt bei jeder Entität einzeln.
 _DIFF = {
     "native_unit_of_measurement": UnitOfTemperature.KELVIN,
     "native_step": 1.0,
-    "entity_category": EntityCategory.CONFIG,
 }
 
 NUMBERS: tuple[AuromaticNumberDescription, ...] = (
@@ -72,14 +76,18 @@ NUMBERS: tuple[AuromaticNumberDescription, ...] = (
         key="temp_desired_low", circuit="mc", message="TempDesiredLow",
         write_message="TempDesiredLow", **_ROOM,
     ),
+    # Die Heizkurve ist kein Wert des Alltags: sie legt die Auslegung des
+    # Kreises fest und wird einmal eingestellt, nicht nach Bedarf gedreht.
+    # Deshalb Konfiguration -- neben ihr stehen im Alltag nur die beiden
+    # Raumsollwerte und die Betriebsart.
     AuromaticNumberDescription(
         key="heating_curve", circuit="hc", message="HeatingCurve",
-        write_message="HeatingCurve",
+        write_message="HeatingCurve", entity_category=EntityCategory.CONFIG,
         native_min_value=0.0, native_max_value=4.0, native_step=0.05, decimals=2,
     ),
     AuromaticNumberDescription(
         key="heating_curve", circuit="mc", message="HeatingCurve",
-        write_message="HeatingCurve",
+        write_message="HeatingCurve", entity_category=EntityCategory.CONFIG,
         native_min_value=0.0, native_max_value=1.5, native_step=0.05, decimals=2,
     ),
     # --- Solarkreis (0xec) --------------------------------------------------
@@ -92,11 +100,13 @@ NUMBERS: tuple[AuromaticNumberDescription, ...] = (
     AuromaticNumberDescription(
         key="sol_enable_diff", circuit="sc", message="SolEnableDiffTemp1",
         write_message="SolEnableDiffTemp1", decimals=0,
+        entity_category=EntityCategory.CONFIG,
         native_min_value=5.0, native_max_value=25.0, **_DIFF,
     ),
     AuromaticNumberDescription(
         key="sol_disable_diff", circuit="sc", message="SolDisableDiffTemp1",
         write_message="SolDisableDiffTemp1", decimals=0,
+        entity_category=EntityCategory.CONFIG,
         native_min_value=2.0, native_max_value=15.0, **_DIFF,
     ),
 )

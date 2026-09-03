@@ -17,7 +17,7 @@ Heizung ── eBUS ── Adapter Shield C6 ── ebusd ── custom_componen
 
 ```
 python3 tests/test_ebusd.py         # 40 Prüfungen, braucht kein Home Assistant
-python3 tests/test_translations.py  # 297 Prüfungen, braucht kein Home Assistant
+python3 tests/test_translations.py  # 393 Prüfungen, braucht kein Home Assistant
 ```
 
 `test_ebusd.py` spielt wortgetreue `ebusctl`-Antworten der echten Anlage gegen
@@ -33,7 +33,7 @@ so heißt wie die zugehörige Lesenachricht (Invariante 2) — ein falscher
 Schreibname fällt sonst erst auf, wenn jemand den Wert verstellt.
 
 Wo eine Prüfung Heizkreis und Mischerkreis unterscheiden muss, darf sie nicht
-über den Übersetzungsschlüssel gehen: `hc` und `mc` teilen sich denselben
+über den Übersetzungsschlüssel gehen: `hc`, `mc` und `cc` teilen sich denselben
 (`key="mode"`), ein Fehler in genau einem Kreis verschwindet dabei.
 
 ## Invarianten — nicht ohne Grund ändern
@@ -51,6 +51,15 @@ Wo eine Prüfung Heizkreis und Mischerkreis unterscheiden muss, darf sie nicht
    ebusd mit `ERR: element not found`, und ihr Datentyp `temp0` kennt nur ganze
    Grad, während das Register selbst (`temp1`) 0,5 K auflöst.
    `tests/test_translations.py` prüft die Gleichheit beider Namen.
+
+   Ausnahmen stehen in `const.WRITE_EXCEPTIONS`, je mit Grund, und der Test
+   lässt genau diese durch. Bislang eine: der Zirkulationskreis hat in der
+   ebusd-Konfiguration überhaupt kein einfeldriges Leseregister für die
+   Betriebsart — `23.solsy.cc.csv` bindet nur `hwcmode.inc` ein. Geschrieben
+   wird deshalb über `cc SetMode`, und das ist hier unbedenklich: ein Feld,
+   derselbe Datentyp wie das gelesene, und am Gerät nachgewiesen, dass es
+   dasselbe Register 2B00 trifft, das der Regler auch führt. Eine neue Ausnahme
+   braucht denselben Nachweis.
 3. **`FlowTempMax` bleibt schreibgeschützt.** 40 °C am Mischerkreis sind die
    geräteseitige Absicherung der Fußbodenheizung.
 4. **Fühlerstatus auswerten.** ebusd liefert `-19.38;cutoff` für nicht
@@ -92,3 +101,17 @@ unverändert übernehmen.
 `translations/de.json` (deutsch) und `translations/en.json` = `strings.json`
 (englische Quelle), Icons aus `icons.json` -- so verlangt es Home Assistant.
 Eine neue Entität braucht immer beides, sonst bleibt sie namenlos.
+
+**Die deutschen Beschriftungen sind die des Bedienteils, wörtlich.** Nicht die
+des ebusd-Datentyps, nicht die naheliegendere Formulierung. Maßgeblich ist die
+Bedienungsanleitung 0020094390 -- Tab. 3.2 für die Heizkreise (Auto, Heizen,
+Eco, Absenken, Aus), Tab. 3.3 für Warmwasser- **und** Zirkulationskreis
+gemeinsam (Auto, Ein, Aus), die Menütexte für die Sollwerte
+(„Raumsolltemperatur", „Absenktemperatur", „Heizkurve"). Der Grund ist nicht
+Ästhetik: wenn jemand am Regler steht, weil etwas klemmt, darf er nicht erst
+übersetzen müssen, was Home Assistant anzeigt.
+
+Dieselben Rohwerte heißen dabei je Kreis verschieden -- `on` ist im Heizkreis
+„Heizen" und im Zirkulationskreis „Ein". Dafür gibt es `translation_key` in der
+Beschreibung: die Beschriftung darf abweichen, der `key` nicht, denn der steckt
+in der `unique_id`.

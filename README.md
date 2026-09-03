@@ -54,16 +54,19 @@ aber nicht an.
 ## Entitäten
 
 Pro Bus-Adresse entsteht ein eigenes Gerät, alle hängen per `via_device` am
-Regler:
+Regler. Die Entitäten sitzen dort, wo die Anlage sie hat -- nicht zwingend
+dort, wo ebusd sie führt: was der ganzen Anlage gehört, liegt am Regler selbst,
+und der Solarertrag steht beim Solar, obwohl ihn das Bedienteil zählt.
 
 | Circuit | Adresse | Gerät | Wesentliche Entitäten |
 |---|---|---|---|
-| `ui` | 0x15 | Bedienteil | Systemzustand, Raumfühler Heizungsraum, Kesselbetriebsstunden, Solarertrag |
-| `cc` | 0x23 | Zentralteil | Diagnose |
+| — | — | auroMATIC 620/3 | Außentemperatur, Sammelvorlauf und -rücklauf, Systemzustand, Störung, Ansteuerstunden |
+| `ui` | 0x15 | Bedienteil | Raumfühler Heizungsraum |
+| `cc` | 0x23 | Zirkulation | Betriebsart der Zirkulationspumpe, Pumpenzustand |
 | `hwc` | 0x25 | Warmwasser | `water_heater` mit Speichertemperatur, Sollwert, Betriebsart |
-| `hc` | 0x26 | Heizkreis | Betriebsart, Raumsollwerte, Heizkurve, Störung |
-| `mc` | 0x50 | Fußbodenheizung | Betriebsart, Raumsollwerte, Heizkurve, Vorlauf |
-| `sc` | 0xec | Solar | Kollektor- und Speicherfühler, Pumpenlaufzeit |
+| `hc` | 0x26 | Heizkreis | Betriebsart, Raumsollwerte, Heizkurve, Vorlaufsollwert |
+| `mc` | 0x50 | Fußbodenheizung | Betriebsart, Raumsollwerte, Heizkurve, Vorlauftemperatur |
+| `sc` | 0xec | Solar | Kollektor- und Speicherfühler, Solarertrag, Pumpenlaufzeit, Schaltdifferenzen, Schutz- und Auslegungswerte |
 
 ## Wie mit den Eigenheiten von ebusd umgegangen wird
 

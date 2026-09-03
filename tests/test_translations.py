@@ -64,13 +64,21 @@ def descriptions(platform: str) -> dict[str, dict]:
         key = fields.get("key")
         if not isinstance(key, ast.Constant):
             continue
+        # Home Assistant beschriftet nach `translation_key`, wo einer gesetzt
+        # ist, und erst sonst nach `key`. Beides faellt auseinander, wo
+        # derselbe Rohwert je Kreis anders heisst -- `key` steckt in der
+        # `unique_id` und darf sich dabei nicht aendern.
+        if isinstance(fields.get("translation_key"), ast.Constant):
+            key = fields["translation_key"]
         options: list[str] = []
         if isinstance(fields.get("options"), ast.List):
             for element in fields["options"].elts:
                 if isinstance(element, ast.Constant):
                     options.append(element.value)
-                elif isinstance(element, ast.Starred) and getattr(element.value, "id", "") == "MODE_OPTIONS":
-                    options.extend(const.MODE_OPTIONS)
+                elif isinstance(element, ast.Starred):
+                    # `options=[*MODE_OPTIONS, "disabled"]` und Verwandte: die
+                    # Liste steht in const.py, der Name hier.
+                    options.extend(getattr(const, getattr(element.value, "id", ""), []))
         # ENUM zaehlt nicht: diese device_class beschreibt nur die moeglichen
         # Zustaende und liefert kein Symbol, ein eigenes Icon ist dort erlaubt.
         device_class = ast.unparse(fields["device_class"]) if "device_class" in fields else ""
@@ -218,16 +226,92 @@ def main() -> int:
                       not ({"source_circuit", "write_message"} <= fields),
                       "source_circuit und write_message schliessen sich aus")
 
+        # Ein schreibbarer Wert landet ohne `entity_category` unter den
+        # Bedienelementen des Geraets -- gleichrangig mit dem, was man
+        # taeglich anfasst. Das sind an dieser Anlage genau drei Groessen: die
+        # beiden Raumsollwerte und die Betriebsart. Alles andere ist Auslegung
+        # und gehoert in die Konfiguration; die Kategorie muss dafuer an der
+        # Beschreibung selbst stehen und nicht in einem gemeinsamen Buendel,
+        # sonst sieht sie weder ein Leser noch diese Pruefung.
+        ALLTAG = ("temp_desired", "temp_desired_low")
+        for platform in ("number", "select"):
+            tree = ast.parse((ROOT / f"{platform}.py").read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not getattr(node.func, "id", "").endswith("Description"):
+                    continue
+                fields = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+                if "key" not in fields:
+                    continue
+                key = fields["key"].value
+                if key in ALLTAG or platform == "select":
+                    check(f"{platform}.{key}: Bedienelement des Alltags",
+                          "entity_category" not in fields, "ohne Kategorie")
+                    continue
+                check(f"{platform}.{key}: Konfiguration, nicht Bedienelement",
+                      "entity_category" in fields,
+                      ast.unparse(fields.get("entity_category", ast.Constant(""))))
+
+        # Die Gerätezuordnung darf von `circuit` abweichen -- sie ist reine
+        # Darstellung, waehrend `circuit` in der `unique_id` steckt. Sie muss
+        # aber auf ein Geraet zeigen, das es gibt, und etwas anderes sagen als
+        # `circuit`, sonst ist sie nur Rauschen.
+        geraete = 0
+        for platform in PLATFORMS:
+            tree = ast.parse((ROOT / f"{platform}.py").read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not getattr(node.func, "id", "").endswith("Description"):
+                    continue
+                fields = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+                geraet = fields.get("device_circuit")
+                if geraet is None:
+                    continue
+                name = ast.unparse(geraet)
+                wert = geraet.value if isinstance(geraet, ast.Constant) else (
+                    const.ROOT_DEVICE if name == "ROOT_DEVICE" else name)
+                key = fields["key"].value
+                geraete += 1
+                check(f"{platform}.{key}: Geraet bekannt",
+                      wert == const.ROOT_DEVICE or wert in const.CIRCUITS, wert)
+                kreis = fields.get("circuit")
+                check(f"{platform}.{key}: Geraet weicht ab",
+                      not isinstance(kreis, ast.Constant) or kreis.value != wert,
+                      f"{ast.unparse(kreis)} -> {wert}")
+        check("Geraetezuordnungen gefunden", geraete >= 6, f"{geraete} abweichende Geraete")
+
         # Ein Schreibname, den es im Kreis nicht gibt, faellt erst beim
         # Verstellen auf. Beide Namen muessen uebereinstimmen: die Register
         # sind "r;w", die Set*-Nachrichten gibt es nur im Mischerkreis.
+        #
+        # Ausnahmen gibt es, aber nur benannte: const.WRITE_EXCEPTIONS nennt
+        # jede mit Kreis, Lese- und Schreibname und verlangt einen Grund. Der
+        # Zirkulationskreis steht dort, weil ebusd fuer ihn kein einfeldriges
+        # Leseregister kennt -- das ist eine Luecke der Konfiguration, keine
+        # des Reglers, und sie soll auffallen, wenn sie sich schliesst.
         written = 0
+        used_exceptions: set[tuple[str, str, str]] = set()
         for platform in PLATFORMS:
             for circuit, key, message, write_message in write_paths(platform):
                 written += 1
+                exception = (circuit, message, write_message)
+                if exception in const.WRITE_EXCEPTIONS:
+                    used_exceptions.add(exception)
+                    check(f"{platform}.{circuit}.{key}: benannte Ausnahme",
+                          bool(const.WRITE_EXCEPTIONS[exception]),
+                          const.WRITE_EXCEPTIONS[exception])
+                    continue
                 check(f"{platform}.{circuit}.{key}: Schreibname = Lesename",
                       write_message == message, message)
         check("schreibende Entitäten gefunden", written >= 8, f"{written} Schreibwege")
+        for exception in sorted(set(const.WRITE_EXCEPTIONS) - used_exceptions):
+            check(f"{exception[0]}.{exception[1]}: Ausnahme ungenutzt", False,
+                  "niemand schreibt darueber")
+        check("keine Ausnahme auf Vorrat",
+              not (set(const.WRITE_EXCEPTIONS) - used_exceptions),
+              f"{len(const.WRITE_EXCEPTIONS)} Ausnahmen, alle benutzt")
 
         # water_heater hat keine Beschreibungsklasse -- seine beiden
         # Schreibaufrufe stehen als Literale im Code.
@@ -243,8 +327,10 @@ def main() -> int:
             check(f"water_heater.{read_message.value}: Schreibname = Lesename",
                   write_message.value == read_message.value, read_message.value)
 
-        # Der Select bietet die Betriebsarten aus const an, nicht aus einer
-        # Beschreibung -- sie brauchen trotzdem übersetzte Bezeichnungen.
+        # Die Auswahl steht seit dem Zirkulationskreis in den Beschreibungen
+        # (nicht jeder Kreis kennt dieselben Stufen) und wird oben schon
+        # geprüft. Hier bleibt die Gegenrichtung: der Select muss alle
+        # Betriebsarten anbieten koennen, die ein Heizkreis melden kann.
         for option in const.MODE_OPTIONS:
             for lang, tree in translations.items():
                 states = tree["select"]["mode"]["state"]
@@ -260,8 +346,11 @@ def main() -> int:
                       not fields["device_class"], "Standardsymbol wird nicht überschrieben")
 
         # Der Speicher traegt den Geraetenamen, hat also keinen eigenen -- aber
-        # seine Betriebsarten erscheinen als Auswahl und muessen uebersetzt sein.
-        for option in const.MODE_OPTIONS:
+        # seine Betriebsarten erscheinen als Auswahl und muessen uebersetzt
+        # sein. Es sind die des Warmwasserkreises, nicht die der Heizkreise:
+        # die Anleitung fuehrt Warmwasser und Zirkulation gemeinsam mit Auto,
+        # Ein und Aus (0020094390, Tab. 3.3).
+        for option in const.HWC_MODE_OPTIONS:
             for lang, tree in translations.items():
                 states = tree["water_heater"]["hot_water"]["state_attributes"]["operation_mode"]["state"]
                 check(f"water_heater.{option} in {lang}", option in states, states.get(option, ""))

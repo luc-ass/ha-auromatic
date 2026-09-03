@@ -8,7 +8,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CIRCUITS, DOMAIN
+from .const import CIRCUITS, DOMAIN, ROOT_DEVICE
 from .coordinator import AuromaticCoordinator
 
 
@@ -36,11 +36,26 @@ class CircuitMixin:
     # sonst ginge der Befehl an den falschen Teilnehmer -- tests/
     # test_translations.py prüft, dass beides nie zusammentrifft.
     source_circuit: str | None = None
+    # Nur setzen, wo die Entität an ein anderes Gerät gehört, als ihr Kreis
+    # nahelegt. `circuit` steckt in der `unique_id` und darf sich nie ändern --
+    # die Gerätezuordnung darf sich sehr wohl ändern, denn sie ist reine
+    # Darstellung.
+    #
+    # Zwei Fälle gibt es: Werte der Anlage statt eines Kreises (ROOT_DEVICE --
+    # ebusd kennt sie nur unter einer Adresse, gemeint ist aber die ganze
+    # Anlage), und Werte, die im Register eines fremden Kreises stehen: der
+    # Solarertrag führt das Bedienteil, gesucht wird er beim Solar.
+    device_circuit: str | None = None
 
     @property
     def source(self) -> str:
         """Der Kreis, aus dem der Wert kommt -- fast immer der eigene."""
         return self.source_circuit or self.circuit
+
+    @property
+    def device(self) -> str:
+        """Das Gerät, an dem die Entität hängt -- fast immer der eigene Kreis."""
+        return self.device_circuit or self.circuit
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -63,19 +78,32 @@ class AuromaticEntity(CoordinatorEntity[AuromaticCoordinator]):
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry_id}_{description.circuit}_{description.key}"
-        # Der Beschreibungsschlüssel ist zugleich der Übersetzungsschlüssel: die
-        # Namen stehen in translations/, nicht im Code. Fehlt dort ein Eintrag,
-        # bliebe die Entität namenlos -- tests/test_translations.py prüft das.
-        self._attr_translation_key = description.key
+        # Der Beschreibungsschlüssel ist in aller Regel zugleich der
+        # Übersetzungsschlüssel: die Namen stehen in translations/, nicht im
+        # Code. Fehlt dort ein Eintrag, bliebe die Entität namenlos --
+        # tests/test_translations.py prüft das.
+        #
+        # Auseinander fallen beide nur, wo derselbe Wert in verschiedenen
+        # Kreisen verschieden heißt: `key` ist Teil der `unique_id` und muss
+        # deshalb stehen bleiben, die Beschriftung darf sich trotzdem
+        # unterscheiden. Der Zirkulationskreis nennt seinen Dauerbetrieb "Ein",
+        # die Heizkreise nennen ihren "Heizen" -- so steht es am Bedienteil.
+        self._attr_translation_key = description.translation_key or description.key
 
-        circuit = CIRCUITS[description.circuit]
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{entry_id}_{description.circuit}")},
-            name=f"auroMATIC {circuit['name']}",
-            manufacturer="Vaillant",
-            model=f"auroMATIC 620/3 ({description.circuit} @ {circuit['address']})",
-            via_device=(DOMAIN, entry_id),
-        )
+        if description.device == ROOT_DEVICE:
+            # Der Regler selbst; angelegt wird er in __init__.py mit Namen und
+            # Softwarestand. Hier genügt die Kennung, alles Weitere führt das
+            # Geräteregister bereits.
+            self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry_id)})
+        else:
+            circuit = CIRCUITS[description.device]
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"{entry_id}_{description.device}")},
+                name=f"auroMATIC {circuit['name']}",
+                manufacturer="Vaillant",
+                model=f"auroMATIC 620/3 ({description.device} @ {circuit['address']})",
+                via_device=(DOMAIN, entry_id),
+            )
 
     @property
     def raw_message(self) -> str | None:

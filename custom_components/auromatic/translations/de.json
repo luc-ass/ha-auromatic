@@ -37,21 +37,30 @@
         "name": "Sammelvorlauf"
       },
       "flow_temp": {
-        "name": "Vorlauf"
+        "name": "Vorlauftemperatur"
       },
       "flow_desired": {
-        "name": "Vorlauf Soll"
+        "name": "Vorlaufsolltemperatur"
       },
       "flow_max": {
-        "name": "Vorlauf Maximum"
+        "name": "Maximale Vorlauftemperatur"
       },
       "mode_state": {
         "name": "Reglerzustand",
         "state": {
-          "auto": "Zeitprogramm",
-          "on": "Dauerbetrieb",
+          "auto": "Auto",
+          "on": "Heizen",
           "eco": "Eco",
-          "low": "Absenkung",
+          "low": "Absenken",
+          "off": "Aus",
+          "disabled": "Deaktiviert"
+        }
+      },
+      "circulation_mode_state": {
+        "name": "Reglerzustand",
+        "state": {
+          "auto": "Auto",
+          "on": "Ein",
           "off": "Aus",
           "disabled": "Deaktiviert"
         }
@@ -89,6 +98,21 @@
       "pump_hours": {
         "name": "Betriebsstunden Kollektorpumpe"
       },
+      "sol_protection_start": {
+        "name": "Kollektorschutz Schwelle"
+      },
+      "sol_protection_hysteresis": {
+        "name": "Kollektorschutz Hysterese"
+      },
+      "sol_max_load": {
+        "name": "Maximale Speicherladetemperatur"
+      },
+      "coll_temp_min": {
+        "name": "Mindesttemperatur Kollektor"
+      },
+      "sol_flow_rate": {
+        "name": "Volumenstrom"
+      },
       "system_mode": {
         "name": "Systemzustand",
         "state": {
@@ -102,7 +126,7 @@
         "name": "Raumfühler Heizungsraum"
       },
       "boiler_hours": {
-        "name": "Betriebsstunden Kessel"
+        "name": "Ansteuerstunden Wärmeerzeuger"
       },
       "yield_year": {
         "name": "Solarertrag laufendes Jahr"
@@ -118,11 +142,11 @@
       "pump": {
         "name": "Kollektorpumpe"
       },
-      "teleswitch": {
-        "name": "Telefonschalter"
+      "circulation_pump": {
+        "name": "Pumpe"
       },
       "frost_protection": {
-        "name": "Frostschutz Solar"
+        "name": "Frostschutz"
       },
       "collector_protection": {
         "name": "Kollektorschutz"
@@ -132,29 +156,37 @@
       "mode": {
         "name": "Betriebsart",
         "state": {
-          "auto": "Zeitprogramm",
-          "on": "Dauerbetrieb",
+          "auto": "Auto",
+          "on": "Heizen",
           "eco": "Eco",
-          "low": "Absenkung",
+          "low": "Absenken",
+          "off": "Aus"
+        }
+      },
+      "circulation_mode": {
+        "name": "Betriebsart",
+        "state": {
+          "auto": "Auto",
+          "on": "Ein",
           "off": "Aus"
         }
       }
     },
     "number": {
       "temp_desired": {
-        "name": "Raumsoll Tag"
+        "name": "Raumsolltemperatur"
       },
       "temp_desired_low": {
-        "name": "Raumsoll Absenkung"
+        "name": "Absenktemperatur"
       },
       "heating_curve": {
         "name": "Heizkurve"
       },
       "sol_enable_diff": {
-        "name": "Solar Einschaltdifferenz"
+        "name": "Einschaltdifferenz"
       },
       "sol_disable_diff": {
-        "name": "Solar Ausschaltdifferenz"
+        "name": "Ausschaltdifferenz"
       }
     },
     "water_heater": {
@@ -162,10 +194,8 @@
         "state_attributes": {
           "operation_mode": {
             "state": {
-              "auto": "Zeitprogramm",
-              "on": "Dauerbetrieb",
-              "eco": "Eco",
-              "low": "Absenkung",
+              "auto": "Auto",
+              "on": "Ein",
               "off": "Aus"
             }
           }

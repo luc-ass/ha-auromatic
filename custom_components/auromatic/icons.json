@@ -4,6 +4,9 @@
       "mode_state": {
         "default": "mdi:calendar-clock"
       },
+      "circulation_mode_state": {
+        "default": "mdi:calendar-clock"
+      },
       "room_offset": {
         "default": "mdi:plus-minus-variant"
       },
@@ -15,12 +18,12 @@
       },
       "system_mode": {
         "default": "mdi:home-thermometer"
+      },
+      "sol_protection_hysteresis": {
+        "default": "mdi:arrow-collapse-vertical"
       }
     },
     "binary_sensor": {
-      "teleswitch": {
-        "default": "mdi:phone"
-      },
       "frost_protection": {
         "default": "mdi:snowflake"
       },
@@ -30,6 +33,9 @@
     },
     "select": {
       "mode": {
+        "default": "mdi:calendar-clock"
+      },
+      "circulation_mode": {
         "default": "mdi:calendar-clock"
       }
     },

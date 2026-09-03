@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import MODE_OPTIONS
+from .const import HWC_MODE_OPTIONS
 from .coordinator import AuromaticConfigEntry
 from .ebusd import EbusdError
 from .entity import AuromaticEntity, CircuitDescription
@@ -43,7 +43,12 @@ class AuromaticWaterHeater(AuromaticEntity, WaterHeaterEntity):
 
     _attr_name = None
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_operation_list = MODE_OPTIONS
+    # Nur Auto, Ein und Aus -- so führt es die Bedienungsanleitung
+    # (0020094390, Tab. 3.3) für Warmwasser- und Zirkulationskreis gemeinsam.
+    # Das Register nähme "eco" und "low" an, weil die ebusd-Definition es als
+    # "mcmode" führt; am Bedienteil stünde dann eine Betriebsart, die sein
+    # Menü nicht kennt.
+    _attr_operation_list = HWC_MODE_OPTIONS
     _attr_min_temp = 35.0
     _attr_max_temp = 70.0
     # Das Register TempDesired2 ist vom Typ "temp1" und löst 0,5 K auf.
@@ -66,7 +71,7 @@ class AuromaticWaterHeater(AuromaticEntity, WaterHeaterEntity):
     @property
     def current_operation(self) -> str | None:
         raw = self.coordinator.value("hwc", "OperatingMode2")
-        return raw if raw in MODE_OPTIONS else None
+        return raw if raw in HWC_MODE_OPTIONS else None
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temperature = kwargs.get(ATTR_TEMPERATURE)
@@ -79,8 +84,8 @@ class AuromaticWaterHeater(AuromaticEntity, WaterHeaterEntity):
 
     async def _write(self, message: str, value: str, read_message: str) -> None:
         """Schreiben geht auf das r;w-Register selbst, nicht auf die
-        Sammelnachricht 'Mode' -- die trägt beim Warmwasser die Zirkulation
-        und den Nachtabsenkungszustand im selben Telegramm."""
+        Sammelnachricht 'Mode' -- die trägt beim Warmwasser die
+        Teleswitch-Betriebsart und den Tag-/Nachtzustand im selben Telegramm."""
         try:
             await self.coordinator.async_write("hwc", message, value, read_message)
         except EbusdError as err:
