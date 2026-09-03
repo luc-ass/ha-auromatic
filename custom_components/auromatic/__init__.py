@@ -46,6 +46,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuromaticConfigEntry) ->
     # Abruf, ob unsere Register noch in der Poll-Liste von ebusd stehen.
     await coordinator.async_apply_poll()
     await coordinator.async_config_entry_first_refresh()
+    # Und nachfassen, was der erste Abruf nicht hatte: Entitäten entstehen nur
+    # dort, wo beim Setup ein Wert vorliegt, und ein kalter Zwischenspeicher
+    # sieht aus wie ein fehlender Fühler.
+    await coordinator.async_warm_cache()
 
     # Der Regler selbst als übergeordnetes Gerät -- die Kreise hängen per
     # via_device daran, damit die Geräteseite die Bus-Struktur abbildet.

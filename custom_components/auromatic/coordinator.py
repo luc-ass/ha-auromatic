@@ -27,6 +27,12 @@ POLL_RETRY_DELAY = 30
 # selbst das trägste Register der Warteschlange kommt alle 15 Minuten dran.
 CARRY_FORWARD_LIMIT = 600
 
+# Wie viele Fehlversuche beim Aufwärmen des Zwischenspeichers hingenommen
+# werden, bevor abgebrochen wird. Antwortet ebusd gar nicht -- etwa mitten in
+# einem Scan --, scheitert jeder einzelne Versuch erst nach einem Zeitablauf,
+# und 42 davon hintereinander legten den Setup minutenlang lahm.
+WARM_CACHE_GIVE_UP = 3
+
 # Ein Register aus READ_MAXAGE, das nicht antwortet, wird nicht eine ganze
 # Stunde in Ruhe gelassen -- sonst hinge die Entität nach einer einzelnen
 # gescheiterten Anfrage bis zum nächsten Termin in der Luft.
@@ -151,6 +157,73 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
             return False
         _LOGGER.debug("%d Register bei ebusd für den Abruf angemeldet", total)
         return True
+
+    async def async_warm_cache(self) -> None:
+        """Fehlende Register einmal gezielt nachlesen -- vor den Entitäten.
+
+        Eine Entität entsteht nur dort, wo beim Setup ein Wert vorliegt. Das
+        ist Absicht: ein nicht angeschlossener Fühler meldet `cutoff` und soll
+        keine bekommen. Ein kalter Zwischenspeicher sieht aber genauso aus.
+        Nach einem Neustart von ebusd ist die Poll-Liste leer; scheitert die
+        Anmeldung für einzelne Register -- während eines Scans antwortet ebusd
+        mit "element not found" --, fehlt deren Wert beim ersten Abruf. Die
+        Anmeldung holt das im Hintergrund nach, die Entitäten nicht: die
+        entstehen genau einmal.
+
+        Am 2026-09-03 an der Anlage beobachtet: nach einem gemeinsamen Neustart
+        von ebusd und Home Assistant fehlten 15 Entitäten, während ebusd für
+        jedes der 42 Register einen gültigen Wert hatte. Ohne diesen Schritt
+        fällt das erst auf, wenn jemand eine Entität vermisst.
+
+        `read -m` kostet nichts, solange der Zwischenspeicher etwas hinreichend
+        Junges enthält; erst sonst geht es auf den Bus, und genau das ist hier
+        gewollt. Im Normalfall fehlt nichts und die Schleife tut nichts.
+        """
+        data = {circuit: dict(values) for circuit, values in (self.data or {}).items()}
+        fehlend = [
+            (circuit, message, POLL_REGISTER_MAXAGE)
+            for circuit, messages in POLL_SET.items()
+            for message in messages
+            if message not in data.get(circuit, {})
+        ] + [
+            (circuit, message, maxage)
+            for (circuit, message), maxage in READ_MAXAGE.items()
+            if message not in data.get(circuit, {})
+        ]
+        if not fehlend:
+            return
+
+        _LOGGER.info(
+            "%d Register fehlen nach dem ersten Abruf und werden einzeln "
+            "nachgelesen, damit ihre Entitäten entstehen", len(fehlend),
+        )
+        fehlversuche = 0
+        for circuit, message, maxage in fehlend:
+            try:
+                value = await self.client.read(circuit, message, maxage)
+                fehlversuche = 0
+            except EbusdError as err:
+                _LOGGER.debug("%s %s nicht nachlesbar: %s", circuit, message, err)
+                fehlversuche += 1
+                if fehlversuche >= WARM_CACHE_GIVE_UP:
+                    _LOGGER.warning(
+                        "Nachlesen abgebrochen, ebusd antwortet nicht. Die "
+                        "betroffenen Entitäten entstehen erst beim nächsten "
+                        "Start von Home Assistant.",
+                    )
+                    break
+                continue
+            if value is None:
+                continue
+            data.setdefault(circuit, {})[message] = value
+            if (circuit, message) in READ_MAXAGE:
+                # Buchführung von _read_outside_queue mitziehen, sonst gilt der
+                # Wert dort weiter als ungelesen.
+                now = time.monotonic()
+                self._read_cache[(circuit, message)] = (now, value)
+                self._read_due[(circuit, message)] = now + maxage
+
+        self.async_set_updated_data(data)
 
     async def _async_update_data(self) -> dict[str, dict[str, str]]:
         await self._ensure_polled()

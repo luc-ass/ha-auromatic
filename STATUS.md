@@ -299,6 +299,27 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   lässt sie nicht verstellen. Unsere Entitäten zeigen weiter die darunter
   liegende Betriebsart. `hc IsInHoliday` (2700) wäre der Weg dorthin, ist aber
   nicht eingebunden.
+- **Ein kalter Zwischenspeicher sah aus wie ein fehlender Fühler.** Am
+  2026-09-03 fehlten nach einem gemeinsamen Neustart von ebusd und Home
+  Assistant **15 Entitäten** — neun ganz, sechs als `restored` in der
+  Registry —, während ebusd für jedes der 42 Register einen gültigen Wert
+  hatte und `poll: 41` meldete. Ursache ist das Zusammentreffen zweier
+  Eigenschaften, die je für sich richtig sind: die Poll-Anmeldung scheitert für
+  einzelne Register, solange ebusd noch scannt (sie wird im Hintergrund
+  nachgeholt), und eine Entität entsteht nur dort, wo **beim Setup** ein Wert
+  vorliegt — was ein nicht angeschlossener Fühler (`cutoff`) verhindern soll.
+  Der Nachbau der Anmeldung kommt für die Entitäten also zu spät; sie entstehen
+  genau einmal.
+
+  Behoben mit `AuromaticCoordinator.async_warm_cache()`, aufgerufen zwischen
+  dem ersten Abruf und dem Anlegen der Plattformen: was danach noch fehlt, wird
+  einzeln mit `read -m` nachgeholt. Das kostet im Normalfall nichts (es fehlt
+  nichts) und im Fehlerfall einen Buszugriff je Register. Antwortet ebusd gar
+  nicht, bricht die Schleife nach drei Fehlversuchen ab, statt den Setup
+  minutenlang in Zeitabläufe laufen zu lassen.
+
+  Die Diagnose ging über die Zustandsattribute: `"restored": true` unterscheidet
+  eine Registry-Leiche von einer Entität, die nur gerade keinen Wert hat.
 - **Kein Telefonschalter, und keiner geplant.** `sc TeleSwitch` stand vom
   2026-09-01 bis 2026-09-03 unverändert auf `off` — an dieser Anlage ist der
   Eingang nicht belegt. Der Binärsensor „Telefonschalter" zeigte damit eine
