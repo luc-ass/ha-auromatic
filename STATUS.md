@@ -1,6 +1,6 @@
 # Stand der Umsetzung
 
-Stand: 2026-09-03. Planungsdokument mit Herleitung und Registerkarte:
+Stand: 2026-09-04. Planungsdokument mit Herleitung und Registerkarte:
 <https://claude.ai/code/artifact/e2491a1b-e82f-496d-95e7-3a4633908ec0>
 
 ---
@@ -20,6 +20,7 @@ Stand: 2026-09-03. Planungsdokument mit Herleitung und Registerkarte:
 
 | Circuit | Adresse | Bedeutung | CSV |
 |---|---|---|---|
+| `bai` | 0x08 | **Wärmeerzeuger**, seit 2026-09-04 wieder am Bus | `vaillant/08.bai.csv` → `bai.0010006101.inc` |
 | `ui` | 0x15 | Bedienteil, Systemebene | `vaillant/15.ui.csv` |
 | `cc` | 0x23 | **Zirkulationskreis** | `vaillant/23.solsy.cc.csv` |
 | `hwc` | 0x25 | Warmwasser | `vaillant/25.solsy.hwc.csv` |
@@ -27,8 +28,10 @@ Stand: 2026-09-03. Planungsdokument mit Herleitung und Registerkarte:
 | `mc` | 0x50 | **Mischerkreis = Fußbodenheizung** | `vaillant/50.solsy.mc.csv` |
 | `sc` | 0xec | Solarkreis | `vaillant/ec.solsy.sc.csv` |
 
-Zusätzlich führt ebusd zwei Master `0x3f` und `0x7f` (`masters: 4`, #23 und
-#24). **Sie senden keine Nutzlast.** In einer vollständigen Busaufnahme
+Dazu der Brennermaster `0x03` (#11), der mit `0x08` zusammengehört und seit
+dem 2026-09-04 mitzählt (`masters: 5`).
+
+Zusätzlich führt ebusd zwei Master `0x3f` und `0x7f` (#23 und #24). **Sie senden keine Nutzlast.** In einer vollständigen Busaufnahme
 (`grab result all`, 2026-09-01) stammt jedes einzelne Telegramm entweder vom
 Bedienteil `0x10` oder von ebusd `0x31` — von `0x3f` und `0x7f` keines, und
 ihre Slave-Adressen `0x44` / `0x84` erscheinen in `info` gar nicht erst. Die
@@ -37,11 +40,82 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
 
 ### Anlagenspezifische Besonderheiten
 
-- **Kein Wärmeerzeuger am Bus.** Der Brenner ist hart abgeschaltet (Zustand vom
-  Hausverkauf). Deshalb keine Kesseltelemetrie, keine Ist-Modulation. Die
-  Betriebsstunden führt der Regler weiter (`ui BoilerHoursB1` ≈ 60836 h).
-  *Folge: Heizfunktionen sind derzeit nicht thermisch verifizierbar — ein
-  Schreibvorgang lässt sich nur zurücklesen. Warmwasser und Solar laufen.*
+- **Der Wärmeerzeuger ist seit dem 2026-09-04 wieder am Bus.** Bis dahin war
+  er hart abgeschaltet (Zustand vom Hausverkauf), und deshalb stand hier
+  jahrelang „kein Kessel, keine Telemetrie, Heizfunktionen nur zurücklesbar".
+  Der Benutzer hat ihn an jenem Vormittag eingeschaltet und den Heizkreis
+  getestet. Am Bus meldete sich `MF=Vaillant;ID=BAI00;SW=0414;HW=7401` auf
+  `0x08`, dazu der Master `0x03`.
+
+  ebusd hatte für die Adresse zunächst **keine Definition geladen** — `info`
+  zeigte sie als `scanned`, aber ohne `loaded`, und `find -c bai` antwortete
+  mit `ERR: element not found`. Ein `ebusctl reload` genügte; die
+  Konfiguration wird beim Start dynamisch geladen, und beim damaligen Start
+  war der Brenner eben noch stromlos. Geladen wird `vaillant/08.bai.csv` und
+  darüber `bai.0010006101.inc` — nicht über die Hardware-Kennung, sondern über
+  den Zweig `[Scan_id_product='']`: die Artikelnummer kommt bei diesem Gerät
+  leer zurück (`Scan.08 Id = ;;;;;;`), und genau der Leerwert steht in der
+  Bedingungsliste. Danach: `messages: 774` statt 550, 224 neue Nachrichten.
+
+  Der Poll-Satz fiel dabei kurz auf 0 und stand beim übernächsten Abruf wieder
+  bei 41 — Invariante 6 hat gehalten, ohne Zutun.
+- **Der Brenner meldete am 2026-09-04 F.75 und die Heizungspumpe saß fest.**
+  F.75 heißt bei Vaillant: beim Anlaufen der Pumpe wurde kein Druckanstieg
+  erkannt. Zwei Ursachen kommen dafür in Frage, zu wenig Wasser oder eine
+  Pumpe, die sich nicht dreht — `bai WaterPressure` stand bei **1,461 bar**,
+  also blieb die zweite. Der Benutzer hat die Pumpe von Hand gangbar gemacht.
+
+  Beides ist am Gerät belegt und nicht erzählt:
+
+  | Register | Wert | |
+  |---|---|---|
+  | `bai Errorhistory` | `1;-:-;-.-.-;75` | 0x4b = 75 = F.75 |
+  | `bai Currenterror` | `-;-;-;-;-` | nichts mehr anstehend |
+  | `bai WaterPressure` | 1,461 bar, `ok` | kein Wassermangel |
+  | `bai HcPumpMode` (d.18) | `post_run` | die Pumpe läuft nur auf Anforderung |
+  | `bai WaterpressureBranchControlOff` | `off` | die Drucksprungerkennung ist **nicht** abgeschaltet |
+  | `bai DeactivationsIFC` (d.61) | 1 | ein einziger Zündfehler im ganzen Gerätleben |
+
+  Die Ursache steht in `HcPumpMode`: die Pumpe läuft im Nachlaufbetrieb, also
+  nur auf Anforderung. Den Blockierschutz fährt der Brenner selbst, aber nur
+  solange er Strom hat — und den hatte er seit dem Hausverkauf nicht. Jetzt,
+  wo er wieder unter Spannung steht, macht er das täglich von allein.
+
+  Der Testlauf selbst steckte noch im Mitschnitt von ebusd. `grab result all`
+  zeigt die Anforderungstelegramme des Reglers an den Brenner
+  (`1008b51009 …`, die Nachricht `bai SetMode`) getrennt nach Inhalt: 3193-mal
+  mit `flowtempdesired` 0,0 und `disablehc` 1, dazu 255 Telegramme mit
+  aufgehobener Sperre und einem Sollwert, der von 25,0 über 34,0 auf 39,0 °C
+  lief. Bei einem Takt von rund 17 s (aus 974 Datetime-Broadcasts à 1/min
+  gerechnet) sind das **rund 70 Minuten Wärmeanforderung**.
+- **`ui BoilerHoursB1` sind Ansteuerstunden, jetzt zweifach belegt.** Der
+  Regler meldet 60 836 h, der Brenner selbst zählt 7098 h Heizbetrieb
+  (`bai HcHours`), 657 h Warmwasser und 8174 h Lüfter. Die Zahlen haben
+  nichts miteinander zu tun. Bisher stand die Auslegung als „Ansteuerstunden"
+  auf dem Kommentar der archivierten CSV; jetzt steht sie auf den Zählern des
+  Geräts.
+- **Zwei Wege zur Zirkulationspumpe.** `bai AccessoriesOne` (d.27) steht auf
+  `circulationpump`, `bai AccessoriesTwo` (d.28) auf `extheatingpump` — das
+  Zubehörrelais 1 des Kessels ist also als ZP konfiguriert, und `bai CirPump`
+  (d.13) zeigt dessen Zustand. Neben dem ZP-Ausgang des Reglers gibt es damit
+  einen zweiten möglichen Anschlusspunkt. Gehört zu Punkt 8 der offenen
+  Punkte: vor dem Rückbau ist zu klären, welcher verdrahtet ist.
+- **Was der Kessel nicht hat.** `bai HwcTemp` meldet `circuit` (kein
+  WW-Vorlauffühler — ein VC, kein Kombigerät), `bai StorageTemp` `cutoff`
+  (kein kesselseitiger Speicherfühler, der Solarspeicher hängt am Regler),
+  ebenso `bai OutdoorstempSensor` und die beiden Abgasfühler `AITemp` /
+  `AATemp`. Der Fühlerstatus `circuit` war neu — bis dahin kannten die
+  Fixtures nur `cutoff`. Invariante 4 sortiert beide gleich aus.
+- **Die Prädiktivwartung des Kessels ist wertlos.** `bai OverflowCounter`
+  steht auf `yes`, die Zähler sind also übergelaufen;
+  `bai WaterpressureVariantSum` liefert 65 529 mbar, und drei `Pred*`-Register
+  scheitern schon am Dekodieren (`ERR: invalid position in decode`). Rund 30
+  Register, die keine Entität bekommen.
+- **Am Kessel wird nichts geschrieben.** Seine beschreibbaren Register liegen
+  ausnahmslos auf Installateur- und Serviceebene (`wi`/`ws`), und in derselben
+  Reihe steht `SetFactoryValues` (d.96 Werkseinstellungen). Dieselbe Logik wie
+  Invariante 1: eine Nachricht, die nie aufgerufen wird, kann auch nichts
+  verstellen.
 - **Ein Kollektorfeld.** `sc Coll2Sensor` meldet `cutoff`, ebenso
   `sc Storage3Sensor3`.
 - **Die vier `Storage*Sensor3` sind nicht vier Speicherhöhen.** Der Regler
@@ -60,7 +134,7 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Altlast: der MQTT-Handler von ebusd setzt Poll-Prioritäten
   (`setPollPriority` → `addPollMessage`) und spannte damit den
   156-Nachrichten-Poll-Satz auf, aus dem sich der Zwischenspeicher füllte, den
-  `find` liest. Diese Aufgabe hat jetzt `poll.py` mit 40 Registern. Die 158
+  `find` liest. Diese Aufgabe hat jetzt `poll.py` mit 51 Registern. Die 158
   MQTT-Entitäten sind verschwunden.
 - **`scan` springt immer wieder kurz auf `running`.** Vermutlich die beiden
   Master `0x3f` / `0x7f`, die sich nicht identifizieren lassen. Folge: ein
@@ -617,13 +691,13 @@ wäre.
 
 Die Liste ist eine Prioritätswarteschlange — nach jedem Abruf rückt eine
 Nachricht um ihren Prioritätswert nach hinten, niedrige Zahl heißt häufiger.
-Daraus drei Stufen in `poll.py`: 14 Messwerte auf 1, vier Bedienelemente
-(Betriebsarten beider Kreise, Warmwassersollwert und -betriebsart) auf 3, 20
+Daraus drei Stufen in `poll.py`: 19 Messwerte auf 1, fünf Bedienelemente
+(Betriebsarten der drei Kreise, Warmwassersollwert und -betriebsart) auf 3, 27
 Sollwerte und Zähler auf 9. Sollwerte brauchen die Warteschlange kaum, weil
 `write_and_confirm` sie nach jeder Änderung ohnehin mit `read -f` frisch holt;
 sie stehen nur drin, falls jemand direkt am Regler dreht — die Bedienelemente
 deshalb in der Mitte, weil dieser Fall bei ihnen der wahrscheinlichste ist.
-Rechnerisch: ~1,8 Minuten für einen Messwert, ~5,3 für ein Bedienelement, ~16
+Rechnerisch: ~2,4 Minuten für einen Messwert, ~7,1 für ein Bedienelement, ~21
 für einen Sollwert, bei unveränderter Buslast.
 
 Dass die Buslast dabei wirklich unverändert bleibt, ist der Grund, warum die
@@ -634,17 +708,41 @@ Höchstalters *zusätzlich* auf den Bus. Fünf Register auf Stufe 9 kosten
 deshalb nichts als drei Sekunden Latenz für die übrigen: 17,11 Anteile wurden
 am 2026-09-02 zu 17,67, ein Messwert kam statt alle 103 nun alle 106 Sekunden
 dran. Seit dem Wegfall des Telefonschalters und dem Hinzukommen des
-Zirkulationskreises (beides 2026-09-03) sind es 18,89 — ein Messwert alle
+Zirkulationskreises (beides 2026-09-03) waren es 18,89 — ein Messwert alle
 113 Sekunden.
 
 Das Modell ist nachgemessen: mit den 21,11 Anteilen des ersten Satzes sagte es
 127 s voraus, der Median über einen vollen Tag lag bei 120 s.
 
-Drei Register bleiben mit Grund draußen (`POLL_EXEMPT`): `mc RoomTempOffset`
+Der Kessel hat den Satz am 2026-09-04 auf **23,67 Anteile** verbreitert: vier
+Register auf Stufe 1 (`WaterPressure`, `Currenterror`, `Flame`, `Status01`)
+und sieben auf Stufe 9 (Statuscode und sechs Zähler). Ein Messwert kommt
+seither rechnerisch alle 142 statt alle 113 Sekunden — knapp eine halbe Minute
+träger, für elf Register. Das ist der Preis, und er ist bewusst bezahlt: ohne
+Wasserdruck, Flamme und Fehlerspeicher des Brenners bleibt genau die Störung
+unsichtbar, die diese Anlage am 2026-09-04 hatte. Eines der vier auf Stufe 1
+kostet dabei vermutlich gar nichts — `bai Status01` fragt das Bedienteil
+ohnehin alle 17 Sekunden ab, und was frisch im Zwischenspeicher liegt,
+überspringt der Poll (derselbe Effekt wie bei `hc SumFlowSensor`).
+
+Vier Register bleiben mit Grund draußen (`POLL_EXEMPT`): `mc RoomTempOffset`
 ist nur schreibend definiert, `sc Coll2Sensor` und `sc Storage3Sensor3` melden
 `cutoff` und haben deshalb gar keine Entität — sie würden je einen der
-schnellen Plätze für nichts belegen. Jede Ausnahme macht die übrigen
-schneller.
+schnellen Plätze für nichts belegen. Dazu `bai SetMode`: in `hcmode.inc` als
+`uw` deklariert, also passiv mitgelesen und schreibend, ohne Lesevariante.
+ebusd nimmt eine Anmeldung darauf zwar an und sendet dafür keine eigene
+Anfrage (in der Busaufnahme danach kein einziges `3108b510`-Telegramm) — der
+Eintrag wäre aber bestenfalls wirkungslos und schlimmstenfalls ein
+Schreibtelegramm an den Brenner, denn der Master-Teil dieser Nachricht *ist*
+der Stellbefehl. Frisch bleibt sie ohnehin, das Bedienteil schickt sie alle
+17 Sekunden. Jede Ausnahme macht die übrigen schneller.
+
+Nicht eingebunden ist `bai Errorhistory`, obwohl dort F.75 steht: die Nachricht
+trägt ein Feld im Master-Teil (den Index des Eintrags), und `read -p 9 -c bai
+Errorhistory` antwortet mit `ERR: end of input reached`. Ohne Poll fröre der
+Wert auf dem Stand des letzten Abrufs ein, und eine Entität, die eine alte
+Störung als aktuelle zeigt, ist schlimmer als keine. Nachzusehen von Hand:
+`ebusctl read -c bai -i 0 Errorhistory`.
 
 Zwei weitere stehen in `READ_MAXAGE` und damit in keiner Warteschlange: die
 beiden Ertragsregister sind zwölf Felder breit, kosten also zwölf Telegramme
@@ -801,8 +899,14 @@ ohne HA-Installation.
    `low`, mit Totzone und Mindestabstand zwischen Schaltvorgängen (Trägheit
    liegt bei Stunden). Offen, ob die Stellantriebe Prozentwerte liefern
    (`HmIP-FALMOT-C12`) oder nur auf/zu.
-4. **Kessel später ergänzen.** Wenn der Brenner wieder läuft, erscheint
-   vermutlich eine `bai`-Adresse am Bus. Dann Scan wiederholen.
+4. **Thermischer Nachweis der Heizfunktionen.** Der Kessel ist eingebunden
+   (siehe unten), aber alle Schreibpfade sind bis heute nur zurückgelesen, nie
+   an einer Temperatur gemessen. Der nächste Heizzyklus ist die Gelegenheit:
+   `hc OperatingMode` setzen und Sammelvorlauf, Sammelrücklauf,
+   `bai Status01` und `bai SetMode` mitschreiben. Damit fiele nebenbei der
+   letzte Beleg für `sc SumBackflowSensor` — die These „Sammelrücklauf der
+   Heizung, tot auf Kellerniveau, weil der Brenner aus ist" steht bisher auf
+   einer Messreihe ganz ohne Wärme.
 5. **`ui YieldThisYear` wird doppelt so oft abgefragt wie `YieldLastYear`**
    (72 gegen 36 Anfragen bei gleicher Priorität). Beide stehen inzwischen
    außerhalb der Warteschlange, der Punkt ist damit unkritisch — die Frage
@@ -824,7 +928,16 @@ ohne HA-Installation.
 8. **Verdrahtung der Zirkulationspumpe.** Der Regelweg steht und ist geprüft,
    die Pumpe hängt aber noch an ihrer externen Steuerung. Nach dem Rückbau auf
    den ZP-Ausgang ist zu prüfen, ob sie beim Schalten der Betriebsart wirklich
-   anläuft — `hwc CirPump2` zeigt nur, was der Regler anfordert.
+   anläuft — `hwc CirPump2` zeigt nur, was der Regler anfordert. Seit dem
+   2026-09-04 ist dabei ein zweiter Anschlusspunkt bekannt: `bai
+   AccessoriesOne` (d.27) steht auf `circulationpump`, das Zubehörrelais 1 des
+   Kessels ist also ebenfalls als ZP konfiguriert. Welcher der beiden Ausgänge
+   verdrahtet ist, entscheidet, wo nachzusehen ist.
+9. **Der Fehlerspeicher des Kessels hat keine Entität.** `bai Errorhistory`
+   trägt F.75, lässt sich aber nicht pollen (Master-Feld für den Index). Ein
+   Weg wäre, ihn wie `READ_MAXAGE` selbst zu holen — dann allerdings mit `-i`,
+   was der Client bislang nicht kennt. Zurückgestellt, solange
+   `bai Currenterror` die anstehende Störung zeigt.
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
@@ -834,6 +947,35 @@ Erledigt am 2026-09-03: der Zirkulationskreis ist eingebunden (Gerät
 „auroMATIC Zirkulation" mit Betriebsart, Reglerzustand und Pumpenzustand), der
 Binärsensor „Telefonschalter" ist ersatzlos entfallen — an dieser Anlage ist
 kein Telefonschalter angeschlossen und keiner geplant.
+
+Erledigt am 2026-09-04: der Wärmeerzeuger ist eingebunden. Neues Gerät
+„auroMATIC Kessel" (`bai`, 0x08, Modell `Vaillant BAI00, SW 0414 / HW 7401`)
+mit elf Entitäten:
+
+| Entität | Register | |
+|---|---|---|
+| Wasserdruck | `bai WaterPressure` | der Wert, wegen dem der Kessel eingebunden ist |
+| Vorlauftemperatur | `bai Status01` Feld 1 | |
+| Rücklauftemperatur | `bai Status01` Feld 2 | |
+| Vorlaufsolltemperatur | `bai SetMode` Feld 2 | die Anforderung des Reglers |
+| Heizungspumpe | `bai Status01` Feld 6 | `overrun` und `hwc` zählen als „läuft" |
+| Flamme | `bai Flame` | |
+| Heizfreigabe | `bai SetMode` Feld 5 | `disablehc`, umgekehrt gemeldet |
+| Störung | `bai Currenterror` | der Fehlerspeicher der Feuerungsautomatik |
+| Statuscode | `bai Statenumber` | Diagnose |
+| Betriebsstunden / Schaltspiele Heizbetrieb und Heizungspumpe | `HcHours`, `HcStarts`, `PumpHours`, `HcPumpStarts` | Diagnose |
+| Stunden bis Wartung, Zündfehler | `HoursTillService`, `DeactivationsIFC` | Diagnose |
+
+Zusammen ergeben die ersten acht die Kette, an der ein F.75 ablesbar wird:
+Anforderung liegt an, Freigabe erteilt, Pumpe soll laufen — und der Druck
+rührt sich nicht.
+
+Zwei Nachrichten tragen dabei je drei Entitäten (`Status01`, `SetMode`), und
+`SetMode` kostet nicht einmal einen Platz in der Warteschlange. Der
+Gerätename bleibt beim Muster der übrigen Kreise; dass der Kessel kein
+auroMATIC ist, sagt sein `model` — dafür kennt `const.CIRCUITS` seit dem
+2026-09-04 ein optionales Feld, und `entity.py` leitet alles Übrige weiter
+aus Name und Adresse ab.
 
 ## 6. Versionsverwaltung
 

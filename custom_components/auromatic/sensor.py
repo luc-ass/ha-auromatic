@@ -14,6 +14,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     EntityCategory,
     UnitOfEnergy,
+    UnitOfPressure,
     UnitOfTemperature,
     UnitOfTime,
     UnitOfVolumeFlowRate,
@@ -55,6 +56,101 @@ class AuromaticSensorDescription(SensorEntityDescription, CircuitMixin):
 
 
 SENSORS: tuple[AuromaticSensorDescription, ...] = (
+    # --- Wärmeerzeuger (0x08) -----------------------------------------------
+    # Der Kessel ist kein Kreis des Reglers, sondern ein eigenes Gerät am Bus.
+    # Er antwortet erst seit dem 2026-09-04 wieder; davor war er stromlos.
+    #
+    # Zwei seiner Nachrichten tragen mehrere Entitäten und kosten deshalb
+    # weniger, als ihre Zahl vermuten lässt: `Status01` führt Vorlauf,
+    # Rücklauf und Pumpenzustand, `SetMode` die Anforderung des Reglers. Die
+    # Feldnummern stehen in `vaillant/hcmode.inc`.
+    AuromaticSensorDescription(
+        # Der Wert, wegen dem der Kessel überhaupt eingebunden ist: F.75 heißt
+        # "kein Druckanstieg beim Anlaufen der Pumpe". Am 2026-09-04 stand der
+        # Druck bei 1,461 bar -- die Ursache war die festsitzende Pumpe, nicht
+        # Wassermangel. Wer den Verlauf sieht, kann beides unterscheiden.
+        key="water_pressure", circuit="bai", message="WaterPressure",
+        status_field=1,
+        device_class=SensorDeviceClass.PRESSURE,
+        native_unit_of_measurement=UnitOfPressure.BAR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    AuromaticSensorDescription(
+        # `Status01` Feld 1. Der Datentyp ist `temp1` und löst deshalb nur
+        # 0,5 K auf; das eigene Register `bai FlowTemp` (d.40) wäre feiner,
+        # kostete aber einen weiteren Platz in der Warteschlange für dieselbe
+        # Temperatur. 0,5 K sind hier reichlich genau.
+        key="flow_temp", circuit="bai", message="Status01",
+        suggested_display_precision=1, **_TEMP,
+    ),
+    AuromaticSensorDescription(
+        # `Status01` Feld 2 -- d.41 am Gerät.
+        key="return_temp", circuit="bai", message="Status01", field=1,
+        suggested_display_precision=1, **_TEMP,
+    ),
+    AuromaticSensorDescription(
+        # `SetMode` Feld 2: der Vorlaufsollwert, den der Regler an den Kessel
+        # schickt. Am 2026-09-04 lief er über rund 70 Minuten von 25 auf
+        # 39 °C -- das ist der Testlauf, in dem F.75 auftrat.
+        key="flow_desired", circuit="bai", message="SetMode", field=1,
+        suggested_display_precision=1, **_TEMP,
+    ),
+    AuromaticSensorDescription(
+        # Der Statuscode der Kesselanzeige (S.xx). 31 heißt "kein
+        # Wärmebedarf". Kein ENUM: die Liste der Codes ist lang, steht in der
+        # Installationsanleitung und nicht in der ebusd-Definition -- ein
+        # unvollständiges Optionsfeld wäre schlechter als die nackte Zahl.
+        key="state_number", circuit="bai", message="Statenumber",
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        key="boiler_hc_hours", circuit="bai", message="HcHours",
+        suggested_display_precision=0,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        key="boiler_hc_starts", circuit="bai", message="HcStarts",
+        suggested_display_precision=0,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        # Die Pumpe, die am 2026-09-04 festsaß. Ihre beiden Zähler sind die
+        # Vorgeschichte zu jeder künftigen Störung.
+        key="boiler_pump_hours", circuit="bai", message="PumpHours",
+        suggested_display_precision=0,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        key="boiler_pump_starts", circuit="bai", message="HcPumpStarts",
+        suggested_display_precision=0,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        # d.84 am Gerät. Zählt herunter, ist also kein Zähler im Sinne der
+        # Statistik -- TOTAL_INCREASING läse in jedem Wartungsintervall einen
+        # Rücksprung als frischen Verbrauch.
+        key="service_hours", circuit="bai", message="HoursTillService",
+        suggested_display_precision=0,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        # d.61: Zündfehler über die Lebensdauer. Steht auf 1, bei 264 700
+        # Schaltspielen -- der Brenner selbst ist in Ordnung.
+        key="ignition_failures", circuit="bai", message="DeactivationsIFC",
+        suggested_display_precision=0,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
     # --- Heizkreis (0x26) ---------------------------------------------------
     AuromaticSensorDescription(
         # Grunddaten der Anlage, nicht des Heizkreises: der Regler zeigt die

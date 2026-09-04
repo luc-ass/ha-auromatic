@@ -101,7 +101,13 @@ class AuromaticEntity(CoordinatorEntity[AuromaticCoordinator]):
                 identifiers={(DOMAIN, f"{entry_id}_{description.device}")},
                 name=f"auroMATIC {circuit['name']}",
                 manufacturer="Vaillant",
-                model=f"auroMATIC 620/3 ({description.device} @ {circuit['address']})",
+                # Voreinstellung ist der Regler selbst -- alle Kreise sind
+                # Teile von ihm. Nur der Kessel ist ein eigenes Gerät am Bus
+                # und nennt sein Modell deshalb in const.CIRCUITS.
+                model=circuit.get(
+                    "model",
+                    f"auroMATIC 620/3 ({description.device} @ {circuit['address']})",
+                ),
                 via_device=(DOMAIN, entry_id),
             )
 

@@ -30,6 +30,33 @@
   },
   "entity": {
     "sensor": {
+      "water_pressure": {
+        "name": "Wasserdruck"
+      },
+      "return_temp": {
+        "name": "Rücklauftemperatur"
+      },
+      "state_number": {
+        "name": "Statuscode"
+      },
+      "boiler_hc_hours": {
+        "name": "Betriebsstunden Heizbetrieb"
+      },
+      "boiler_hc_starts": {
+        "name": "Schaltspiele Heizbetrieb"
+      },
+      "boiler_pump_hours": {
+        "name": "Betriebsstunden Heizungspumpe"
+      },
+      "boiler_pump_starts": {
+        "name": "Schaltspiele Heizungspumpe"
+      },
+      "service_hours": {
+        "name": "Stunden bis Wartung"
+      },
+      "ignition_failures": {
+        "name": "Zündfehler"
+      },
       "outside_temp": {
         "name": "Außentemperatur"
       },
@@ -136,6 +163,15 @@
       }
     },
     "binary_sensor": {
+      "flame": {
+        "name": "Flamme"
+      },
+      "boiler_pump": {
+        "name": "Heizungspumpe"
+      },
+      "heat_release": {
+        "name": "Heizfreigabe"
+      },
       "error": {
         "name": "Störung"
       },

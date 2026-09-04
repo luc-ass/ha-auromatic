@@ -32,9 +32,9 @@ Daraus die drei Stufen unten:
 * `POLL_SETTING` (9) -- Sollwerte, Konfiguration und Zählerstände. Sie ändern
   sich selten, und niemand wartet auf sie.
 
-Mit 15 Registern auf 1, fünf auf 3 und 20 auf 9 ergeben sich 18,89 Anteile:
-ein Messwert kommt rund alle 1,9 Minuten an die Reihe, ein Bedienelement alle
-5,7, ein Sollwert alle 17 -- bei unveränderter Buslast gegenüber den 156
+Mit 19 Registern auf 1, fünf auf 3 und 27 auf 9 ergeben sich 23,67 Anteile:
+ein Messwert kommt rund alle 2,4 Minuten an die Reihe, ein Bedienelement alle
+7,1, ein Sollwert alle 21 -- bei unveränderter Buslast gegenüber den 156
 Nachrichten von vorher.
 
 Nachgemessen an einem vollen Tag (2026-09-02, 16 h Laufzeit, damals noch
@@ -42,6 +42,16 @@ Nachgemessen an einem vollen Tag (2026-09-02, 16 h Laufzeit, damals noch
 gerechnet waren 127. Das Modell stimmt also, und die Zahlen oben sind keine
 Schätzung -- es rechnet eher etwas zu pessimistisch, weil fremder Verkehr auf
 dem Bus einzelne Register frisch hält, die ebusd dann überspringt.
+
+Der Kessel hat den Satz am 2026-09-04 von 18,89 auf 23,67 Anteile verbreitert
+-- vier Register auf Stufe 1 und sieben auf Stufe 9 --, ein Messwert kommt
+seither rechnerisch alle 142 statt alle 113 Sekunden. Das ist der Preis, und
+er ist bewusst bezahlt: ohne Wasserdruck, Flamme und Fehlerspeicher des
+Brenners bleibt genau die Störung unsichtbar, die diese Anlage am
+2026-09-04 hatte (F.75, festsitzende Pumpe). Eines der vier auf Stufe 1
+kostet dabei vermutlich gar nichts: `bai Status01` fragt das Bedienteil
+ohnehin alle 17 Sekunden ab, und was frisch im Zwischenspeicher liegt,
+überspringt der Poll -- derselbe Effekt wie bei `hc SumFlowSensor`.
 
 **Der Poll-Satz muss vollständig sein.** Steht ein Register hier nicht drin,
 holt ebusd es nicht mehr vom Bus, und `find` liefert bis in alle Ewigkeit den
@@ -137,10 +147,70 @@ POLL_EXEMPT: Final[dict[tuple[str, str], str]] = {
     # oder der dritte Speicherfühler angeschlossen, müssen sie hier raus.
     ("sc", "Coll2Sensor"): "nicht angeschlossen (cutoff)",
     ("sc", "Storage3Sensor3"): "nicht angeschlossen (cutoff)",
+    # Die Wärmeanforderung, die der Regler an den Kessel schickt. In
+    # `hcmode.inc` steht sie als `uw` -- passiv mitgelesen und schreibend,
+    # aber ohne Lesevariante. ebusd nimmt eine Poll-Anmeldung darauf zwar an
+    # (am 2026-09-04 mit `read -p 1 -m 3600 -c bai SetMode` versucht,
+    # quittiert mit dem Wert aus dem Zwischenspeicher), sendet dafür aber
+    # keine eigene Anfrage; in der Busaufnahme steht danach kein einziges
+    # `3108b510`-Telegramm. Der Eintrag wäre also bestenfalls wirkungslos --
+    # und schlimmstenfalls ein Schreibtelegramm an den Brenner, denn der
+    # Master-Teil dieser Nachricht *ist* der Stellbefehl. Aus demselben Grund
+    # wie Invariante 1: eine Nachricht, die nie aktiv aufgerufen wird, kann
+    # auch nichts verstellen.
+    #
+    # Frisch bleibt der Wert trotzdem: das Bedienteil schickt ihn alle 17
+    # Sekunden, ebusd schneidet mit (`update: 12`).
+    ("bai", "SetMode"): "nur passiv/schreibend definiert (uw), ebusd hört das Bedienteil mit",
 }
 
 # Kreis -> Nachricht -> Priorität.
 POLL_SET: Final[dict[str, dict[str, int]]] = {
+    # Der Wärmeerzeuger (0x08). Er ist seit dem 2026-09-04 wieder am Bus, und
+    # der Anlass ist zugleich die Begründung für diesen Block: der Brenner
+    # meldete an jenem Vormittag F.75 -- kein Druckanstieg beim Anlaufen der
+    # Pumpe --, und die Pumpe musste von Hand gangbar gemacht werden. Sichtbar
+    # war davon in Home Assistant nichts.
+    "bai": {
+        # Der Wert, um den es geht. Am 2026-09-04 stand er auf 1,46 bar; die
+        # Ursache war also nicht Wassermangel, sondern die Pumpe. Beides
+        # unterscheidet nur, wer den Druck über die Zeit sieht.
+        "WaterPressure": POLL_MEASURED,
+        # Der Fehlerspeicher des Brenners, nicht der des Reglers: `hc
+        # Currenterror` trägt die Störungen der Regelung, `bai Currenterror`
+        # die der Feuerungsautomatik. F.75 stand nur hier.
+        "Currenterror": POLL_MEASURED,
+        # Der Brenner läuft in Schüben von Minuten. Auf Stufe 9 (21 Minuten)
+        # sähe man die meisten Zyklen gar nicht.
+        "Flame": POLL_MEASURED,
+        # Vorlauf, Rücklauf und Pumpenzustand in einer Nachricht -- drei
+        # Entitäten für einen Platz. Das Bedienteil fragt sie ohnehin alle
+        # 17 s ab; angemeldet ist sie trotzdem, denn sonst bliebe sie bei
+        # abgeschaltetem Brenner stumm auf dem letzten Wert stehen, ohne dass
+        # es auffiele. Genau der Ausfall, den dieses Modul beschreibt.
+        "Status01": POLL_MEASURED,
+        # Der Statuscode der Anzeige (S.xx). 31 heißt "kein Wärmebedarf".
+        "Statenumber": POLL_SETTING,
+        # Zählerstände. Sie ändern sich in Stunden, nicht in Minuten, und
+        # stehen deshalb auf der billigsten Stufe. Die vier Pumpen- und
+        # Heizzähler sind die Vorgeschichte zu jeder künftigen Störung;
+        # `DeactivationsIFC` (ein einziger Zündfehler im ganzen Gerätleben)
+        # ist der Gegenbeweis dafür, dass es am Brenner selbst liegt.
+        "HcHours": POLL_SETTING,
+        "HcStarts": POLL_SETTING,
+        "PumpHours": POLL_SETTING,
+        "HcPumpStarts": POLL_SETTING,
+        "HoursTillService": POLL_SETTING,
+        "DeactivationsIFC": POLL_SETTING,
+        # `Errorhistory` fehlt hier mit Absicht: die Nachricht trägt ein Feld
+        # im Master-Teil (den Index des Eintrags) und lässt sich deshalb nicht
+        # anmelden -- `read -p 9 -c bai Errorhistory` antwortet mit
+        # "ERR: end of input reached". Ohne Poll fröre der Wert auf dem Stand
+        # des letzten Abrufs ein, und eine Entität, die eine alte Störung als
+        # aktuelle zeigt, ist schlimmer als keine. Nachzusehen ist die
+        # Historie mit `ebusctl read -c bai -i 0 Errorhistory`; am 2026-09-04
+        # stand dort `1;-:-;-.-.-;75`.
+    },
     "hc": {
         "OutsideTemp": POLL_MEASURED,
         "SumFlowSensor": POLL_MEASURED,

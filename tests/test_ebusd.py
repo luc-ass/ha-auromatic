@@ -68,6 +68,29 @@ RESPONSES: dict[str, list[str]] = {
         "ui BoilerHoursB1 = 60836",
     ],
     "cc": ["cc StatPowerOn = 204"],
+    # Der Waermeerzeuger (0x08), Werte vom 2026-09-04 -- dem Tag, an dem der
+    # Brenner nach Jahren wieder Strom bekam und F.75 meldete. Zwei
+    # Eigenheiten stecken hier drin, die es sonst nirgends gibt: mehrfeldrige
+    # Statusnachrichten mit ganz unterschiedlichen Feldbedeutungen
+    # (Temperaturen, Pumpenzustand, Sperrbits in einer Zeile), und der
+    # Fuehlerstatus 'circuit' -- bislang kannten die Fixtures nur 'cutoff'.
+    "bai": [
+        "bai Status01 = 24.0;25.0;-;-;-;off",
+        "bai SetMode = auto;0.0;-;-;1;0;0;0;0;0",
+        "bai WaterPressure = 1.461;ok",
+        "bai Flame = off",
+        "bai Currenterror = -;-;-;-;-",
+        "bai Statenumber = 31",
+        "bai HcStarts = 264700",
+        # Kein Speicherfuehler am Kessel (externer Solarspeicher).
+        "bai StorageTemp = -14.94;cutoff",
+        # Kein WW-Vorlauffuehler: ein VC, kein Kombigeraet. Der Fuehlerstatus
+        # heisst hier 'circuit', nicht 'cutoff', und der Zahlenwert davor ist
+        # mit 116 Grad genauso unbrauchbar.
+        "bai HwcTemp = 116.06;circuit",
+        # Traegt ein Feld im Master-Teil und laesst sich deshalb nicht pollen.
+        "bai Errorhistory = no data stored",
+    ],
 }
 
 # Der Regler uebernimmt einen geschriebenen Wert sofort, der Cache von ebusd
@@ -213,6 +236,33 @@ async def run() -> None:
           "Betriebsart aus Feld 1 lesbar")
     check("Estrichtrocknung", pf(mc["Mode"], index=2) == "0" and pf(mc["Mode"], index=3) == "0",
           "Tage und Temperatur stehen auf 0")
+
+    # Der Kessel. Eine Nachricht, drei Entitaeten -- und die Feldnummern sind
+    # das Einzige, was sie auseinanderhaelt.
+    bai = await client.find("bai")
+    check("Kessel-Vorlauf", pf(bai["Status01"]) == "24.0", "Feld 0 aus Status01")
+    check("Kessel-Ruecklauf", pf(bai["Status01"], index=1) == "25.0", "Feld 1")
+    check("Kesselpumpe", pf(bai["Status01"], index=5) == "off", "Feld 5, Pumpenzustand")
+    check("Waermeanforderung", pf(bai["SetMode"], index=1) == "0.0",
+          "Vorlaufsollwert des Reglers an den Kessel")
+    check("Heizkreissperre", pf(bai["SetMode"], index=4) == "1",
+          "disablehc -- 1 heisst gesperrt")
+    check("Wasserdruck", pf(bai["WaterPressure"], status_index=1) == "1.461", "1.461 bar")
+    # Der Nachlauf ist kein Stillstand: 'overrun' und 'hwc' heissen ebenso,
+    # dass sich die Pumpe dreht. Nur 'off' heisst aus.
+    def pump_running(raw: str) -> bool:
+        parts = raw.split(";")
+        return len(parts) > 5 and parts[5].strip() not in ("", "-", "off")
+
+    check("Pumpe steht", pump_running(bai["Status01"]) is False, "'off'")
+    check("Pumpe im Nachlauf laeuft",
+          pump_running("24.0;25.0;-;-;-;overrun") is True, "'overrun' zaehlt als an")
+    check("Fuehler mit Kurzschluss", pf(bai["HwcTemp"], status_index=1) is None,
+          "'circuit' wird zu None statt 116.06 Grad")
+    check("Kessel ohne Speicherfuehler", pf(bai["StorageTemp"], status_index=1) is None,
+          "cutoff")
+    check("Nicht pollbare Nachricht", "Errorhistory" not in bai,
+          "'no data stored' wird gefiltert")
 
     # Der Fehlerspeicher wird bewusst als Gesamtwert bewertet.
     def has_error(raw: str) -> bool:

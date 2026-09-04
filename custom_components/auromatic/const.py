@@ -24,7 +24,23 @@ DEFAULT_SCAN_INTERVAL: Final = 60
 # Die Kreise des Reglers. ebusd leitet den Circuit-Namen aus dem Dateinamen der
 # geladenen CSV ab (26.solsy.hc.csv -> "hc"). Die Bus-Adresse dient nur zur
 # Anzeige und zur eindeutigen Geräte-Identifikation.
+#
+# `model` steht nur dort, wo der Teilnehmer kein auroMATIC ist: der Kessel ist
+# ein eigenes Gerät am selben Bus, kein Kreis des Reglers. Alles andere leitet
+# entity.py aus Name und Adresse ab.
 CIRCUITS: Final[dict[str, dict[str, str]]] = {
+    # Der Wärmeerzeuger (0x08). Er ist kein Kreis des Reglers, sondern ein
+    # zweites Gerät am Bus -- ebusd lädt für ihn `vaillant/08.bai.csv` und
+    # darüber `bai.0010006101.inc`. An dieser Anlage war er bis zum 2026-09-04
+    # stromlos (Zustand vom Hausverkauf) und deshalb gar nicht vorhanden;
+    # seither antwortet er, und der Kreis existiert. Bleibt er wieder aus,
+    # fehlen seine Register schlicht -- der Koordinator verträgt einen stummen
+    # Kreis, und die Entitäten entstehen beim Setup nur, wenn Werte vorliegen.
+    "bai": {
+        "address": "0x08",
+        "name": "Kessel",
+        "model": "Vaillant BAI00, SW 0414 / HW 7401 (bai @ 0x08)",
+    },
     "ui": {"address": "0x15", "name": "Bedienteil"},
     "cc": {"address": "0x23", "name": "Zirkulation"},
     "hwc": {"address": "0x25", "name": "Warmwasser"},

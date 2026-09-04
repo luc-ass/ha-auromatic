@@ -1,6 +1,27 @@
 {
   "entity": {
     "sensor": {
+      "state_number": {
+        "default": "mdi:numeric"
+      },
+      "boiler_hc_hours": {
+        "default": "mdi:counter"
+      },
+      "boiler_hc_starts": {
+        "default": "mdi:counter"
+      },
+      "boiler_pump_hours": {
+        "default": "mdi:counter"
+      },
+      "boiler_pump_starts": {
+        "default": "mdi:counter"
+      },
+      "service_hours": {
+        "default": "mdi:wrench-clock"
+      },
+      "ignition_failures": {
+        "default": "mdi:flash-alert"
+      },
       "mode_state": {
         "default": "mdi:calendar-clock"
       },
@@ -24,6 +45,12 @@
       }
     },
     "binary_sensor": {
+      "flame": {
+        "default": "mdi:fire"
+      },
+      "heat_release": {
+        "default": "mdi:radiator"
+      },
       "frost_protection": {
         "default": "mdi:snowflake"
       },

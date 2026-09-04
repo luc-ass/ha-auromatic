@@ -80,6 +80,7 @@ und der Solarertrag steht beim Solar, obwohl ihn das Bedienteil zählt.
 | Circuit | Adresse | Gerät | Wesentliche Entitäten |
 |---|---|---|---|
 | — | — | auroMATIC 620/3 | Außentemperatur, Sammelvorlauf und -rücklauf, Systemzustand, Störung, Ansteuerstunden |
+| `bai` | 0x08 | Kessel | Wasserdruck, Flamme, Vorlauf und Rücklauf, Heizungspumpe, Wärmeanforderung des Reglers, Störung, Betriebsstunden und Schaltspiele |
 | `ui` | 0x15 | Bedienteil | Raumfühler Heizungsraum |
 | `cc` | 0x23 | Zirkulation | Betriebsart der Zirkulationspumpe, Pumpenzustand |
 | `hwc` | 0x25 | Warmwasser | `water_heater` mit Speichertemperatur, Sollwert, Betriebsart |
@@ -102,37 +103,60 @@ Drei Fallstricke, die jeder naive Weg von ebusd nach Home Assistant trifft:
 
 ## Schreibzugriffe
 
-Ausschließlich über die Einzelfeld-Nachrichten `SetMode`, `SetTempDesired`,
-`SetTempDesiredLow`, `SetHeatingCurve`. Die Sammelnachricht `Mode` wird **nur
-gelesen, nie geschrieben** — sie enthält neben der Betriebsart auch
-`floorpavingdryingday` und `floorpavingdryingtemp`. Ein Schreibvorgang darauf
-könnte die Estrichtrocknung starten und die Fußbodenheizung tagelang
-hochfahren.
+**Geschrieben wird auf dasselbe Register, das auch gelesen wird.**
+`OperatingMode`, `TempDesired`, `TempDesiredLow` und `HeatingCurve` sind in der
+ebusd-Konfiguration als `r;w` deklariert — ein Register, einmal lesend und
+einmal schreibend, mit genau einem Feld.
 
-Vorlaufbegrenzungen (`FlowTempMax`, aktuell 40 °C am Mischerkreis) sind bewusst
-nur lesbar eingebunden.
+Die naheliegenderen `Set*`-Nachrichten sind *nicht* der Weg, und das ist am
+Gerät gelernt: es gibt sie nur im Mischerkreis, im Heizkreis antwortet ebusd
+mit `ERR: element not found`, und ihr Datentyp `temp0` kennt nur ganze Grad,
+während das Register selbst (`temp1`) 0,5 K auflöst. Geschriebene 21,5 °C kamen
+als 21,0 zurück. Eine einzige begründete Ausnahme gibt es, `cc SetMode` — dem
+Zirkulationskreis fehlt in der ebusd-Konfiguration ein einfeldriges
+Leseregister für die Betriebsart. Sie steht mit Begründung in
+`const.WRITE_EXCEPTIONS`, und `tests/test_translations.py` lässt genau diese
+eine durch.
+
+Die Sammelnachricht `Mode` wird **nur gelesen, nie geschrieben** — sie enthält
+neben der Betriebsart auch `floorpavingdryingday` und `floorpavingdryingtemp`.
+Ein Schreibvorgang darauf könnte die Estrichtrocknung starten und die
+Fußbodenheizung tagelang hochfahren.
+
+Nur lesend eingebunden sind außerdem, jeweils mit Grund: die
+Vorlaufbegrenzungen (`FlowTempMax`, 40 °C am Mischerkreis) und die
+Schutzwerte des Kollektorkreises — geräteseitige Absicherungen, an denen ein
+Bedienelement zum Verstellen im Vorbeigehen einlüde. Und **am Kessel wird
+überhaupt nichts geschrieben**: seine beschreibbaren Register liegen
+ausnahmslos auf Installateur- und Serviceebene, in derselben Reihe wie
+`SetFactoryValues` (d.96 Werkseinstellungen).
 
 ## Tests
 
 ```
-python3 tests/test_ebusd.py
+python3 tests/test_ebusd.py         # Fake-ebusd mit echten Antworten
+python3 tests/test_translations.py  # Entitäten gegen die HA-Richtlinien
 ```
 
-Läuft ohne installiertes Home Assistant gegen einen Fake-ebusd, der
-wortgetreue Antworten der echten Anlage zurückspielt.
+Beide laufen ohne installiertes Home Assistant. `test_ebusd.py` spielt
+wortgetreue `ebusctl`-Antworten der echten Anlage gegen einen Fake-ebusd;
+`test_translations.py` hält die Entitätsbeschreibungen gegen `translations/`,
+`icons.json` und den Poll-Satz — es fängt die Fehler ab, die sonst still
+bleiben, etwa eine Entität ohne Namenseintrag oder ein Register, das gelesen,
+aber nie bei ebusd angemeldet wird.
 
 ## Neue Version veröffentlichen
 
 HACS bietet den Anwendern die GitHub-*Releases* an. Ein Release braucht deshalb
-zweierlei, und zwar gleichlautend: das Tag (`v0.2.0`) und das Feld `version` in
-`custom_components/auromatic/manifest.json` (`0.2.0`). Weichen sie voneinander
+zweierlei, und zwar gleichlautend: das Tag (`v0.3.0`) und das Feld `version` in
+`custom_components/auromatic/manifest.json` (`0.3.0`). Weichen sie voneinander
 ab, lädt HACS zwar die Dateien, meldet aber weiter die alte Version als
 installiert und bietet dasselbe Update immer wieder an.
 
 ## Stand
 
-Lesender Teil, Betriebsartensteuerung, Sollwerte und Warmwasser sind gebaut.
-Noch offen: `climate`-Entitäten (brauchen verknüpfte Raumsensoren — das
+Lesender Teil, Betriebsartensteuerung, Sollwerte, Warmwasser, Zirkulation und
+der Wärmeerzeuger sind gebaut. Noch offen: `climate`-Entitäten (brauchen verknüpfte Raumsensoren — das
 eingebaute Bedienteil hängt im Heizungsraum und taugt nicht als Führungsgröße)
 und die bedarfsgeführte Regelung der Fußbodenheizung über die Ventilstellungen
 aus Homematic IP.

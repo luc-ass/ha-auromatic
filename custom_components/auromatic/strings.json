@@ -30,6 +30,33 @@
   },
   "entity": {
     "sensor": {
+      "water_pressure": {
+        "name": "Water pressure"
+      },
+      "return_temp": {
+        "name": "Return temperature"
+      },
+      "state_number": {
+        "name": "Status code"
+      },
+      "boiler_hc_hours": {
+        "name": "Heating operating hours"
+      },
+      "boiler_hc_starts": {
+        "name": "Heating cycles"
+      },
+      "boiler_pump_hours": {
+        "name": "Pump operating hours"
+      },
+      "boiler_pump_starts": {
+        "name": "Pump cycles"
+      },
+      "service_hours": {
+        "name": "Hours until service"
+      },
+      "ignition_failures": {
+        "name": "Ignition failures"
+      },
       "outside_temp": {
         "name": "Outside temperature"
       },
@@ -136,6 +163,15 @@
       }
     },
     "binary_sensor": {
+      "flame": {
+        "name": "Flame"
+      },
+      "boiler_pump": {
+        "name": "Heating pump"
+      },
+      "heat_release": {
+        "name": "Heat release"
+      },
       "error": {
         "name": "Fault"
       },
