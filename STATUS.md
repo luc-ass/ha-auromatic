@@ -676,6 +676,42 @@ nicht, weil ein Rescan die Einträge jederzeit entfernt und `scan` auf dieser
 Anlage immer wieder kurz auf `running` springt. Die Länge der Liste ist das
 einzige verlässliche Signal; sie kostet ein `info` je Abruf.
 
+**Ein abwesender Kreis ist ein Zustand, kein Sonderfall.** Der Kessel war
+jahrelang stromlos und kann es wieder sein. ebusd lädt seine CSV dann gar
+nicht, und `find -c bai` antwortet nicht etwa leer, sondern mit `ERR: element
+not found`. Am 2026-09-05 zeigte sich, dass gleich drei Mechanismen daran
+vorbeiliefen — jeder für sich lautlos:
+
+Der Koordinator setzte die letzten Werte des ausgefallenen Kreises im
+Ausnahmezweig selbst wieder ein. `carry_forward` überspringt aber jedes
+Register, das bereits in der Antwort steht: die Frist von 600 s begann nie zu
+laufen, und der Kessel hätte bis in alle Ewigkeit „Flamme an, 1,46 bar, keine
+Störung" gemeldet. Also genau der Ausfall, gegen den die Überbrückung
+überhaupt befristet ist.
+
+`async_warm_cache` zählte die sofortige Fehlerantwort wie einen Zeitablauf und
+gab nach dreien auf. Weil `bai` in `POLL_SET` vorn steht, wären beim kalten
+Start die Entitäten *aller übrigen* Kreise ausgeblieben — dieselben, für die
+es diesen Schritt seit dem 2026-09-03 gibt.
+
+Und `_ensure_polled` verglich die Poll-Liste mit allen 51 Registern. Elf davon
+sind ohne Kessel nicht anmeldbar; der Vergleich wäre nie aufgegangen, jede
+Minute hätte eine vollständige Neuanmeldung angestoßen und alle paar Minuten
+hätte „Poll-Satz nach 6 Versuchen unvollständig" im Protokoll gestanden — die
+eine Warnung, die einen echten Verlust der Liste anzeigen soll.
+
+Behoben in 0.3.1: der Koordinator führt mit, welche Kreise ebusd gerade nicht
+kennt. Das Signal fällt beim Abruf ohnehin an — ein Kommandofehler bei `find`
+heißt „abwesend", eine Antwort heißt „wieder da". Das Soll des Poll-Satzes
+rechnet nur über die bekannten Kreise, aufs Aufgeben zählen nur noch echte
+Zeitabläufe, und der ausgefallene Kreis wird leer übergeben, damit die Frist
+greift. Kommt der Kessel zurück, wächst das Soll von selbst wieder auf 51 und
+der nächste Abruf meldet seine elf Register nach.
+
+Nachgezogen im Fake-ebusd: er gab für einen unbekannten Kreis bislang eine
+leere Liste zurück statt der Fehlerzeile. Der Fall, an dem alles hängt, war
+damit gar nicht prüfbar.
+
 **Den Poll-Satz selbst anmelden statt die Konfiguration zu forken.** ebusd
 pollt **eine** Nachricht pro `--pollinterval` — die Buslast hängt allein am
 Takt, nie an der Länge der Liste. Mit den 156 Nachrichten des MQTT-Zweigs kam
@@ -971,16 +1007,25 @@ Anforderung liegt an, Freigabe erteilt, Pumpe soll laufen — und der Druck
 rührt sich nicht.
 
 Zwei Nachrichten tragen dabei je drei Entitäten (`Status01`, `SetMode`), und
-`SetMode` kostet nicht einmal einen Platz in der Warteschlange. Der
-Gerätename bleibt beim Muster der übrigen Kreise; dass der Kessel kein
-auroMATIC ist, sagt sein `model` — dafür kennt `const.CIRCUITS` seit dem
-2026-09-04 ein optionales Feld, und `entity.py` leitet alles Übrige weiter
-aus Name und Adresse ab.
+`SetMode` kostet nicht einmal einen Platz in der Warteschlange — dafür haben
+seine beiden Entitäten als einzige kein Netz beim Aufwärmen des
+Zwischenspeichers, denn gelesen werden darf es nicht.
+
+Das Gerät hieß zunächst „auroMATIC Kessel", dem Muster der übrigen Kreise
+folgend; seit 0.3.1 heißt es schlicht **„Kessel"**. Es ist ein eigener
+Teilnehmer am Bus, und über einer Modellzeile „Vaillant BAI00" war der alte
+Name eine Behauptung, die ihr widersprach. `const.CIRCUITS` kennt dafür zwei
+optionale Felder — `model` seit dem 2026-09-04, `device_name` seit 0.3.1 —,
+alles Übrige leitet `entity.py` weiter aus Name und Adresse ab. Bestehende
+`entity_id`s folgen der Umbenennung nicht; die Historie bleibt.
 
 ## 6. Versionsverwaltung
 
-Git-Repository auf Branch `main`, kein Remote. Der Anfangs-Commit enthält den
-oben beschriebenen Stand vollständig.
+Git-Repository auf Branch `main`, Remote `origin` auf
+<https://github.com/luc-ass/ha-auromatic>. Der Anfangs-Commit enthält den
+oben beschriebenen Stand vollständig; veröffentlicht wird über GitHub-Releases,
+deren Tag mit dem `version`-Feld in `manifest.json` gleichlauten muss (siehe
+README).
 
 Vor Änderungen an der Schreiblogik lohnt ein Blick in `CLAUDE.md`: die dortigen
 Invarianten sind aus Fehlern und Anlagenwissen entstanden, nicht aus Vorsicht.
