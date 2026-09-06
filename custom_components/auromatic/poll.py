@@ -161,6 +161,17 @@ POLL_EXEMPT: Final[dict[tuple[str, str], str]] = {
     #
     # Frisch bleibt der Wert trotzdem: das Bedienteil schickt ihn alle 17
     # Sekunden, ebusd schneidet mit (`update: 12`).
+    #
+    # Eine Einschränkung hat das, und sie betrifft nur dieses eine Register:
+    # an ihm hängen zwei Entitäten (`flow_desired` in sensor.py, `heat_release`
+    # in binary_sensor.py), und `async_warm_cache` kann sie nicht absichern --
+    # es läuft über POLL_SET und READ_MAXAGE, und hier darf nicht gelesen
+    # werden. Startet ebusd kurz vor Home Assistant, ist noch kein
+    # `1008b510`-Telegramm mitgeschnitten; `find` liefert die Nachricht dann
+    # nicht, und die beiden Entitäten entstehen erst beim nächsten Start von
+    # Home Assistant. Die übrigen ausgenommenen Register tragen keine Entität,
+    # dort fällt es nicht ins Gewicht. Ein weiteres mit Entität gehört deshalb
+    # nicht hierher, sondern in READ_MAXAGE.
     ("bai", "SetMode"): "nur passiv/schreibend definiert (uw), ebusd hört das Bedienteil mit",
 }
 

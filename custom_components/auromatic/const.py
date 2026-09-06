@@ -25,9 +25,9 @@ DEFAULT_SCAN_INTERVAL: Final = 60
 # geladenen CSV ab (26.solsy.hc.csv -> "hc"). Die Bus-Adresse dient nur zur
 # Anzeige und zur eindeutigen Geräte-Identifikation.
 #
-# `model` steht nur dort, wo der Teilnehmer kein auroMATIC ist: der Kessel ist
-# ein eigenes Gerät am selben Bus, kein Kreis des Reglers. Alles andere leitet
-# entity.py aus Name und Adresse ab.
+# `model` und `device_name` stehen nur dort, wo der Teilnehmer kein auroMATIC
+# ist: der Kessel ist ein eigenes Gerät am selben Bus, kein Kreis des Reglers.
+# Alles andere leitet entity.py aus Name und Adresse ab.
 CIRCUITS: Final[dict[str, dict[str, str]]] = {
     # Der Wärmeerzeuger (0x08). Er ist kein Kreis des Reglers, sondern ein
     # zweites Gerät am Bus -- ebusd lädt für ihn `vaillant/08.bai.csv` und
@@ -39,6 +39,11 @@ CIRCUITS: Final[dict[str, dict[str, str]]] = {
     "bai": {
         "address": "0x08",
         "name": "Kessel",
+        # Ohne diese Ausnahme hieße das Gerät "auroMATIC Kessel" -- über einer
+        # Modellzeile, die "Vaillant BAI00" nennt. Wer am Brenner steht, soll
+        # dort dasselbe lesen wie in Home Assistant; er gehört nicht zum
+        # Regler, sondern hängt neben ihm am Bus.
+        "device_name": "Kessel",
         "model": "Vaillant BAI00, SW 0414 / HW 7401 (bai @ 0x08)",
     },
     "ui": {"address": "0x15", "name": "Bedienteil"},

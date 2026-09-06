@@ -99,7 +99,9 @@ class AuromaticEntity(CoordinatorEntity[AuromaticCoordinator]):
             circuit = CIRCUITS[description.device]
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, f"{entry_id}_{description.device}")},
-                name=f"auroMATIC {circuit['name']}",
+                # Voreinstellung ist der Regler -- die Kreise sind Teile
+                # von ihm und tragen seinen Namen. Nur der Kessel nicht.
+                name=circuit.get("device_name", f"auroMATIC {circuit['name']}"),
                 manufacturer="Vaillant",
                 # Voreinstellung ist der Regler selbst -- alle Kreise sind
                 # Teile von ihm. Nur der Kessel ist ein eigenes Gerät am Bus

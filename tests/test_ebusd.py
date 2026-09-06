@@ -138,7 +138,12 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
                    f"scan: {scan_state[0]}", "masters: 4",
                    f"poll: {len(poll_list)}", "update: 10"]
         elif cmd.startswith("find -c "):
-            out = RESPONSES.get(cmd.split()[-1], [])
+            # Einen Kreis, dessen CSV nicht geladen ist, kennt ebusd gar nicht
+            # -- die Antwort ist dieselbe Fehlerzeile wie bei einem unbekannten
+            # Register, keine leere Liste. Der stromlose Kessel ist genau
+            # dieser Fall, und der Koordinator haengt daran: nur an dieser
+            # Fehlerantwort erkennt er einen abwesenden Kreis.
+            out = RESPONSES.get(cmd.split()[-1]) or ["ERR: element not found"]
         elif cmd.startswith("write "):
             writes.append(cmd)
             # write -c <circuit> <SetXxx> <wert>
@@ -257,6 +262,18 @@ async def run() -> None:
     check("Pumpe steht", pump_running(bai["Status01"]) is False, "'off'")
     check("Pumpe im Nachlauf laeuft",
           pump_running("24.0;25.0;-;-;-;overrun") is True, "'overrun' zaehlt als an")
+    # Faellt der Strom am Kessel aus, laedt ebusd '08.bai.csv' nicht und kennt
+    # den Kreis nicht mehr. 'find' meldet dann einen Fehler, keinen leeren
+    # Kreis -- der Koordinator nimmt ihn daraufhin aus dem Soll des Poll-Satzes
+    # und laesst seine Werte ueber carry_forward befristet auslaufen.
+    try:
+        await client.find("bai_ohne_strom")
+    except ebusd.EbusdCommandError as err:
+        check("Abwesender Kreis", "element not found" in str(err),
+              "'find' meldet einen Fehler statt eines leeren Kreises")
+    else:
+        raise AssertionError("find hat einen unbekannten Kreis stumm als leer gemeldet")
+
     check("Fuehler mit Kurzschluss", pf(bai["HwcTemp"], status_index=1) is None,
           "'circuit' wird zu None statt 116.06 Grad")
     check("Kessel ohne Speicherfuehler", pf(bai["StorageTemp"], status_index=1) is None,
@@ -364,6 +381,24 @@ async def run() -> None:
     offen3, abgelaufen3 = ebusd.carry_forward(vorher, zurueck, offen, 1200.0, 600)
     check("Rückkehr beendet die Überbrückung", not offen3 and not abgelaufen3,
           "der Merker verschwindet mit dem Wert")
+
+    # Ein ganzer Kreis faellt aus -- der stromlose Kessel. Der Koordinator
+    # uebergibt ihn dann leer, gerade damit die Frist hier greift. Traegt er
+    # die alten Werte selbst wieder ein, ueberspringt carry_forward sie und
+    # der Kreis steht fuer immer still: Flamme "an", Druck 1,46 bar, keine
+    # Stoerung -- ohne 'unavailable' und ohne Warnung.
+    kessel = {"bai": {"Flame": "on", "WaterPressure": "1.461;ok"}}
+    weg = {"bai": {}}
+    offen4, abgelaufen4 = ebusd.carry_forward(kessel, weg, {}, 2000.0, 600)
+    check("Stummer Kreis überbrückt", weg["bai"]["Flame"] == "on",
+          "kurzer Ausfall wird getragen")
+    check("Frist läuft auch für den Kreis", len(offen4) == 2 and not abgelaufen4,
+          "beide Register vorgemerkt")
+
+    weg2 = {"bai": {}}
+    _, abgelaufen5 = ebusd.carry_forward(kessel, weg2, offen4, 2601.0, 600)
+    check("Kessel wird aufgegeben", len(abgelaufen5) == 2 and not weg2["bai"],
+          "nach 601 s werden die Entitäten 'unavailable'")
 
     # Ein Neustart von ebusd reisst die Verbindung ab. Der naechste Befehl muss
     # trotzdem durchkommen -- sonst faellt die ganze Integration aus, nur weil

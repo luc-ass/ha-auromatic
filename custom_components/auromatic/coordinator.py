@@ -12,7 +12,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import CIRCUITS, DOMAIN
-from .ebusd import EbusdClient, EbusdError, carry_forward, parse_field
+from .ebusd import (
+    EbusdClient,
+    EbusdCommandError,
+    EbusdError,
+    carry_forward,
+    parse_field,
+)
 from .poll import POLL_REGISTER_MAXAGE, POLL_SET, READ_MAXAGE
 
 # Nach einem Neustart oder Rescan von ebusd sind die Definitionen für einige
@@ -30,7 +36,9 @@ CARRY_FORWARD_LIMIT = 600
 # Wie viele Fehlversuche beim Aufwärmen des Zwischenspeichers hingenommen
 # werden, bevor abgebrochen wird. Antwortet ebusd gar nicht -- etwa mitten in
 # einem Scan --, scheitert jeder einzelne Versuch erst nach einem Zeitablauf,
-# und 42 davon hintereinander legten den Setup minutenlang lahm.
+# und 42 davon hintereinander legten den Setup minutenlang lahm. Gezählt wird
+# deshalb nur, was tatsächlich Zeit kostet; eine Fehlerantwort von ebusd kommt
+# sofort und ist kein Grund, den Rest der Liste stehen zu lassen.
 WARM_CACHE_GIVE_UP = 3
 
 # Wie lange nach einem Schreibvorgang gewartet wird, bevor das Register
@@ -74,12 +82,39 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
         )
         self.client = client
         self._poll_task: asyncio.Task[None] | None = None
+        # Kreise, deren CSV ebusd gerade nicht geladen hat. Der Kessel ist der
+        # Fall, für den es die Liste gibt: ist er stromlos, kennt ebusd 'bai'
+        # nicht, und jede Anmeldung darauf scheitert dauerhaft.
+        self._unknown_circuits: set[str] = set()
         # Seit wann ein Register in der Antwort von ebusd fehlt.
         self._missing_since: dict[tuple[str, str], float] = {}
         # Die Register außerhalb der Warteschlange: wann das nächste Lesen
         # fällig ist, und was zuletzt herauskam (mit dem Zeitpunkt dazu).
         self._read_due: dict[tuple[str, str], float] = {}
         self._read_cache: dict[tuple[str, str], tuple[float, str]] = {}
+
+    def _expected_polls(self) -> int:
+        """Wie viele Einträge die Poll-Liste von ebusd haben müsste.
+
+        Kreise, die ebusd nicht kennt, bleiben aus der Rechnung heraus. Sonst
+        wäre der Vergleich in _ensure_polled bei stromlosem Kessel dauerhaft
+        unerfüllbar: seine elf Anmeldungen scheitern jedes Mal, die Zahl bliebe
+        immer elf zu klein, und der Koordinator liefe jede Minute in eine
+        vollständige Neuanmeldung samt Wiederholungsaufgabe. Alle paar Minuten
+        stünde dann "Poll-Satz unvollständig" im Protokoll -- und damit wäre
+        die eine Warnung entwertet, die einen echten Verlust der Poll-Liste
+        anzeigen soll.
+
+        Die Liste pflegt _async_update_data: dort scheitert 'find' für einen
+        unbekannten Kreis ohnehin, und sobald er antwortet, fällt er wieder
+        heraus. Das Soll wächst damit von selbst wieder, und weil es dann über
+        der tatsächlichen Zahl liegt, meldet der nächste Abruf den Kreis an.
+        """
+        return sum(
+            len(messages)
+            for circuit, messages in POLL_SET.items()
+            if circuit not in self._unknown_circuits
+        )
 
     async def _ensure_polled(self) -> None:
         """Prüfen, ob unsere Register noch in der Poll-Liste von ebusd stehen.
@@ -88,10 +123,10 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
         liefert 'find' bis in alle Ewigkeit denselben Wert -- ohne Fehler und
         ohne 'unavailable'. Das ist genau die Sorte Ausfall, die man wochenlang
         übersieht, deshalb wird sie jede Runde geprüft statt nach Zeitplan.
-        Ein 'info' je Abruf, neben den sechs 'find' -- das fällt nicht ins
+        Ein 'info' je Abruf, neben den sieben 'find' -- das fällt nicht ins
         Gewicht, und angemeldet wird nur, wenn tatsächlich etwas fehlt.
         """
-        expected = sum(len(m) for m in POLL_SET.values())
+        expected = self._expected_polls()
         try:
             _, polled = await self.client.status()
         except EbusdError:
@@ -140,9 +175,9 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
         """Einen Anmeldedurchlauf. True, wenn nichts mehr offen ist.
 
         Einzelne Fehlschläge sind kein Grund aufzugeben: ein Register, das
-        diese Anlage nicht kennt, darf die übrigen vierzig nicht mitreißen.
+        diese Anlage nicht kennt, darf die übrigen nicht mitreißen.
         """
-        total = sum(len(m) for m in POLL_SET.values())
+        total = self._expected_polls()
         try:
             scan_done, _ = await self.client.status()
         except EbusdError as err:
@@ -154,6 +189,11 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
 
         failed: list[str] = []
         for circuit, messages in POLL_SET.items():
+            if circuit in self._unknown_circuits:
+                # Ohne geladene CSV nimmt ebusd keine Anmeldung an. Die elf
+                # Fehlschläge des abwesenden Kessels dürfen den Durchlauf nicht
+                # dauerhaft als unvollständig gelten lassen.
+                continue
             for message, priority in messages.items():
                 try:
                     await self.client.set_poll_priority(
@@ -190,6 +230,12 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
         `read -m` kostet nichts, solange der Zwischenspeicher etwas hinreichend
         Junges enthält; erst sonst geht es auf den Bus, und genau das ist hier
         gewollt. Im Normalfall fehlt nichts und die Schleife tut nichts.
+
+        Erfasst sind POLL_SET und READ_MAXAGE, also alles, was gelesen werden
+        darf. Draußen bleibt `bai SetMode`: dessen Master-Teil ist der
+        Stellbefehl an den Brenner, es wird deshalb nie aktiv aufgerufen. Die
+        zwei Entitäten daran haben hier kein Netz -- die Begründung steht bei
+        POLL_EXEMPT in poll.py.
         """
         data = {circuit: dict(values) for circuit, values in (self.data or {}).items()}
         fehlend = [
@@ -214,6 +260,15 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
             try:
                 value = await self.client.read(circuit, message, maxage)
                 fehlversuche = 0
+            except EbusdCommandError as err:
+                # Keine Verzögerung, sondern eine sofortige Antwort: dieses
+                # Register gibt es hier nicht. Das darf nicht aufs Aufgeben
+                # zählen -- sonst bricht ein stromloser Kessel, dessen elf
+                # Register alle in Millisekunden abgelehnt werden, das
+                # Aufwärmen für jeden danach folgenden Kreis ab. Genau die
+                # Entitäten fehlten dann, für die es diesen Schritt gibt.
+                _LOGGER.debug("%s %s nicht nachlesbar: %s", circuit, message, err)
+                continue
             except EbusdError as err:
                 _LOGGER.debug("%s %s nicht nachlesbar: %s", circuit, message, err)
                 fehlversuche += 1
@@ -249,8 +304,23 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
             except EbusdError as err:
                 # Ein einzelner stummer Kreis darf nicht die ganze Integration
                 # abwerfen -- bei abgeschaltetem Brenner ist genau das normal.
+                #
+                # Der Kreis bleibt dabei leer. Seine letzten Werte hier selbst
+                # wieder einzusetzen wäre naheliegend und falsch: carry_forward
+                # überspringt jedes Register, das bereits in der Antwort steht.
+                # Die Frist aus CARRY_FORWARD_LIMIT käme nie zum Tragen, die
+                # Werte stünden für immer still -- ohne 'unavailable', ohne
+                # Warnung. Also genau der Ausfall, gegen den Invariante 6
+                # geschrieben ist. Überbrückt wird in _bridge_gaps, befristet.
                 errors.append(f"{circuit}: {err}")
-                data[circuit] = dict(self.data.get(circuit, {})) if self.data else {}
+                data[circuit] = {}
+                # 'element not found' heißt: ebusd kennt den Kreis nicht, seine
+                # CSV ist gar nicht geladen. Nur das nimmt ihn aus dem Soll des
+                # Poll-Satzes -- ein Verbindungsfehler sagt darüber nichts.
+                if isinstance(err, EbusdCommandError):
+                    self._unknown_circuits.add(circuit)
+            else:
+                self._unknown_circuits.discard(circuit)
 
         if len(errors) == len(CIRCUITS):
             raise UpdateFailed("; ".join(errors))
