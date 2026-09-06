@@ -10,14 +10,18 @@ Bedienung und Installation: [README.md](README.md).
 
 ```
 Heizung ── eBUS ── Adapter Shield C6 ── ebusd ── custom_components/auromatic ── HA
-                   10.23.10.114:9999   :8888
+                   10.23.10.114:9999   :8888              10.23.10.123
 ```
+
+Die Heizungsinstanz ist **10.23.10.123** -- im Netzsegment stehen mehrere
+Home-Assistant-Instanzen, und der Name `homeassistant` zeigt auf eine andere.
+Von innen heißt ebusd `2ad9b828-ebusd:8888`.
 
 ## Tests
 
 ```
-python3 tests/test_ebusd.py         # 40 Prüfungen, braucht kein Home Assistant
-python3 tests/test_translations.py  # 395 Prüfungen, braucht kein Home Assistant
+python3 tests/test_ebusd.py         # 55 Prüfungen, braucht kein Home Assistant
+python3 tests/test_translations.py  # 489 Prüfungen, braucht kein Home Assistant
 ```
 
 `test_ebusd.py` spielt wortgetreue `ebusctl`-Antworten der echten Anlage gegen

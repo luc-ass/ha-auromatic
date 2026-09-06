@@ -43,10 +43,22 @@ CIRCUITS: Final[dict[str, dict[str, str]]] = {
         # Modellzeile, die "Vaillant BAI00" nennt. Wer am Brenner steht, soll
         # dort dasselbe lesen wie in Home Assistant; er gehört nicht zum
         # Regler, sondern hängt neben ihm am Bus.
-        "device_name": "Kessel",
-        "model": "Vaillant BAI00, SW 0414 / HW 7401 (bai @ 0x08)",
+        # Wandhängendes Heizgerät ohne Warmwasserbereitung -- bei Vaillant
+        # ein VC, umgangssprachlich eine Therme. Belegt am 2026-09-06:
+        # `bai HwcTemp` meldet `circuit` (kein WW-Vorlauffühler),
+        # `bai StorageTemp` meldet `cutoff` (kein geräteseitiger Speicher),
+        # und der Benutzer hat das Gerät als wandhängend bestätigt.
+        "device_name": "Therme",
+        "model": "Vaillant BAI00 (bai @ 0x08)",
     },
-    "ui": {"address": "0x15", "name": "Bedienteil"},
+    # Das Bedienteil ist ein eigener Artikel (0020080465) mit eigener
+    # Seriennummer und eigenem Softwarestand, kein Kreis des Reglers -- und
+    # trägt deshalb wie die Therme ein eigenes Modell.
+    "ui": {
+        "address": "0x15",
+        "name": "Bedienteil",
+        "model": "CI of VRS 620/3 (ui @ 0x15)",
+    },
     "cc": {"address": "0x23", "name": "Zirkulation"},
     "hwc": {"address": "0x25", "name": "Warmwasser"},
     "hc": {"address": "0x26", "name": "Heizkreis"},

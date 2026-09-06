@@ -117,6 +117,23 @@ commands: list[str] = []
 checks = 0
 
 
+# Wortgetreue Antwort auf 'scan result' vom 2026-09-06. Die ersten fuenf
+# Spalten stammen aus der Scan-Antwort, die uebrigen sieben aus 'Scan.<zz> Id'.
+# Zwei Eigenheiten stecken darin: der Brenner meldet alle Kennungsfelder leer
+# (deshalb laedt ebusd ihn ueber den Zweig [Scan_id_product='']), und die fuenf
+# Adressen des Reglers melden dieselbe Artikelnummer *und* denselben Zaehler --
+# es ist ein Geraet auf fuenf Busadressen.
+SCAN_RESULT = [
+    "08;Vaillant;BAI00;0414;7401;;;;;;;",
+    "15;Vaillant;UI   ;0508;6201;21;16;12;0020080465;0907;005300;N5",
+    "23;Vaillant;SOLSY;0500;6301;21;16;12;0020076588;0907;005114;N4",
+    "25;Vaillant;SOLSY;0500;6301;21;16;12;0020076588;0907;005114;N4",
+    "26;Vaillant;SOLSY;0500;6301;21;16;12;0020076588;0907;005114;N4",
+    "50;Vaillant;SOLSY;0500;6301;21;16;12;0020076588;0907;005114;N4",
+    "ec;Vaillant;SOLSY;0500;6301;21;16;12;0020076588;0907;005114;N4",
+]
+
+
 def check(label: str, condition: bool, detail: str = "") -> None:
     global checks
     checks += 1
@@ -133,7 +150,9 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
     while (raw := await reader.readline()):
         cmd = raw.decode().strip()
         commands.append(cmd)
-        if cmd == "info":
+        if cmd == "scan result":
+            out = list(SCAN_RESULT)
+        elif cmd == "info":
             out = ["version: ebusd 26.1.26.1", "signal: acquired",
                    f"scan: {scan_state[0]}", "masters: 4",
                    f"poll: {len(poll_list)}", "update: 10"]
@@ -344,6 +363,30 @@ async def run() -> None:
     poll_list.clear()
     check("Leere Poll-Liste erkannt", (await client.status())[1] == 0,
           "nach einem Rescan faellt sie auf 0")
+
+    # Die Gerätedaten kommen aus 'scan result' -- ein Befehl, kein Buszugriff.
+    teilnehmer = await client.scan_result()
+    check("Teilnehmer erkannt", len(teilnehmer) == 7, f"{sorted(teilnehmer)}")
+    check("Regler-Seriennummer", teilnehmer["26"]["serial"] == "21161200200765880907005114N4",
+          "die sieben Felder ergeben die 28-stellige Nummer vom Typenschild")
+    check("Softwarestand des Reglers", teilnehmer["26"]["sw"] == "0500", "nicht der von ebusd")
+    check("Baujahr", teilnehmer["26"]["built"] == "KW 12/2016", "aus year und week")
+    check("Bedienteil ist ein eigenes Geraet",
+          teilnehmer["15"]["product"] == "0020080465" != teilnehmer["26"]["product"],
+          "eigene Artikelnummer")
+    # Der eigentliche Beleg dafuer, dass die fuenf Kreise ein Geraet sind: nicht
+    # nur dieselbe Artikelnummer, sondern derselbe Produktionszaehler.
+    seriennummern = {teilnehmer[a]["serial"] for a in ("23", "25", "26", "50", "ec")}
+    check("Fuenf Kreise, ein Geraet", len(seriennummern) == 1,
+          "gleiche Artikelnummer und gleicher Zaehler")
+    # Der Brenner meldet seine Kennung leer -- keine erfundenen Felder.
+    check("Therme ohne Seriennummer am Bus",
+          "serial" not in teilnehmer["08"] and teilnehmer["08"]["sw"] == "0414",
+          "Kennung leer, Versionen vorhanden")
+    check("HEX-Feld als Text", ebusd.hex_text("53 42 32 30 36 37 34 30") == "SB206740",
+          "Seriennummer der Elektronik")
+    check("Kein Text aus Muell", ebusd.hex_text("00 01 02") is None and ebusd.hex_text("") is None,
+          "nicht druckbares gilt als kein Wert")
 
     # Zwei Register stehen nicht in der Warteschlange, sondern werden vom
     # Koordinator selbst geholt -- mit Höchstalter statt mit '-f'. Die

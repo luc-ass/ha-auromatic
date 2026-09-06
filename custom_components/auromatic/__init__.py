@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_SCAN_INTERVAL, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -10,6 +12,8 @@ from homeassistant.helpers import device_registry as dr
 from .const import DEFAULT_PORT, DEFAULT_SCAN_INTERVAL, DOMAIN
 from .coordinator import AuromaticConfigEntry, AuromaticCoordinator
 from .ebusd import EbusdClient, EbusdError
+
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -50,16 +54,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuromaticConfigEntry) ->
     # dort, wo beim Setup ein Wert vorliegt, und ein kalter Zwischenspeicher
     # sieht aus wie ein fehlender Fühler.
     await coordinator.async_warm_cache()
+    # Hersteller, Versionen und Seriennummern der Busteilnehmer -- ein Befehl,
+    # kein Buszugriff. Muss vor den Plattformen laufen: die Entitäten legen
+    # ihre Geräte beim Anlegen an und lesen die Angaben dabei mit.
+    await coordinator.async_read_participants()
 
     # Der Regler selbst als übergeordnetes Gerät -- die Kreise hängen per
     # via_device daran, damit die Geräteseite die Bus-Struktur abbildet.
+    #
+    # Seine Kenndaten stehen unter jeder seiner fünf Adressen gleich; genommen
+    # wird die des Heizkreises. Der Softwarestand ist seit 0.3.2 der des
+    # Reglers (0500) und nicht mehr der von ebusd -- ebusd ist nicht das Gerät,
+    # das hier beschrieben wird, und seine Version steht in den Diagnosedaten.
+    regler = coordinator.participant("hc")
+    _LOGGER.debug("ebusd %s, Teilnehmer: %s", version, sorted(coordinator.participants))
     dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         manufacturer="Vaillant",
         name="auroMATIC 620/3",
         model="auroMATIC 620/3",
-        sw_version=version,
+        sw_version=regler.get("sw", version),
+        hw_version=regler.get("hw"),
+        serial_number=regler.get("serial"),
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

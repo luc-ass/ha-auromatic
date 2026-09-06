@@ -17,6 +17,7 @@ from .ebusd import (
     EbusdCommandError,
     EbusdError,
     carry_forward,
+    hex_text,
     parse_field,
 )
 from .poll import POLL_REGISTER_MAXAGE, POLL_SET, READ_MAXAGE
@@ -58,6 +59,11 @@ EFFECT_SETTLE = 2.0
 # gescheiterten Anfrage bis zum nächsten Termin in der Luft.
 READ_RETRY_DELAY = 60
 
+# Höchstalter für die unveränderlichen Gerätedaten. Sie ändern sich nie; das
+# einzige Ziel ist, dass ebusd aus dem Zwischenspeicher antwortet statt auf den
+# Bus zu gehen.
+SCAN_MAXAGE = 86400
+
 _LOGGER = logging.getLogger(__name__)
 
 type AuromaticConfigEntry = ConfigEntry[AuromaticCoordinator]
@@ -86,6 +92,9 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
         # Fall, für den es die Liste gibt: ist er stromlos, kennt ebusd 'bai'
         # nicht, und jede Anmeldung darauf scheitert dauerhaft.
         self._unknown_circuits: set[str] = set()
+        # Was ebusd beim Scannen über die Busteilnehmer erfahren hat, nach
+        # Adresse ohne '0x'. Steht nach dem Setup fest und ändert sich nicht.
+        self.participants: dict[str, dict[str, str]] = {}
         # Seit wann ein Register in der Antwort von ebusd fehlt.
         self._missing_since: dict[tuple[str, str], float] = {}
         # Die Register außerhalb der Warteschlange: wann das nächste Lesen
@@ -291,6 +300,42 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
                 self._read_due[(circuit, message)] = now + maxage
 
         self.async_set_updated_data(data)
+
+    async def async_read_participants(self) -> None:
+        """Hersteller, Versionen und Seriennummern der Teilnehmer holen.
+
+        Ein einziger Befehl für alle Adressen, und kein Telegramm auf dem Bus:
+        'scan result' gibt aus, was ebusd beim Scannen ohnehin erfragt hat.
+
+        Der Brenner ist der Sonderfall -- seine Kennung kommt leer zurück
+        (';;;;;;'), er hat also weder Artikelnummer noch Seriennummer am Bus.
+        Was er hat, ist 'bai SerialNumber': die Seriennummer seiner Elektronik,
+        als HEX-Feld codiert. Die wird nur dort nachgelesen, wo die Scan-Daten
+        nichts hergeben, mit großem Höchstalter -- der Wert ist unveränderlich,
+        und ebusd beantwortet ihn aus dem Zwischenspeicher.
+        """
+        try:
+            self.participants = await self.client.scan_result()
+        except EbusdError as err:
+            _LOGGER.debug("Scan-Daten nicht lesbar: %s", err)
+            return
+
+        for circuit, angaben in CIRCUITS.items():
+            adresse = angaben["address"].removeprefix("0x").lower()
+            eintrag = self.participants.get(adresse)
+            if eintrag is None or eintrag.get("serial"):
+                continue
+            try:
+                roh = await self.client.read(circuit, "SerialNumber", SCAN_MAXAGE)
+            except EbusdError:
+                continue
+            if (text := hex_text(roh)) is not None:
+                eintrag["board_serial"] = text
+
+    def participant(self, circuit: str) -> dict[str, str]:
+        """Die Scan-Daten zu einem Kreis, leer wenn es keine gibt."""
+        adresse = CIRCUITS[circuit]["address"].removeprefix("0x").lower()
+        return self.participants.get(adresse, {})
 
     async def _async_update_data(self) -> dict[str, dict[str, str]]:
         await self._ensure_polled()

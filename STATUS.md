@@ -9,12 +9,25 @@ Stand: 2026-09-04. Planungsdokument mit Herleitung und Registerkarte:
 
 | | |
 |---|---|
-| Regler | Vaillant auroMATIC 620/3, Kennung `SOLSY`, SW 0500 / HW 6301, Ident 0020076588 |
-| Bedienteil | `UI`, „CI of VRS 620/3", SW 0508 / HW 6201, Ident 0020080465 |
+| Regler | Vaillant auroMATIC 620/3, Kennung `SOLSY`, SW 0500 / HW 6301, Ident 0020076588, Serie `21161200200765880907005114N4`, KW 12/2016 |
+| Bedienteil | `UI`, „CI of VRS 620/3", SW 0508 / HW 6201, Ident 0020080465, Serie `21161200200804650907005300N5` |
+| Wärmeerzeuger | Vaillant `BAI00`, SW 0414 / HW 7401 — **wandhängende Therme (VC), kein Kessel**; keine Artikel-/Seriennummer am Bus, Elektronik `SB206740` |
 | Adapter | eBUS Adapter Shield C6, ESP32-C6, PCB 2.44.0, **10.23.10.114** |
 | Adapter-Modus | `ens` (enhanced) über TCP **Port 9999 — nur ein Client gleichzeitig** |
 | ebusd | 26.1, als Home-Assistant-Add-on, Hostname **`2ad9b828-ebusd`**, Port 8888 |
-| Home Assistant | HA OS / Supervised |
+| Home Assistant | HA OS / Supervised, **10.23.10.123** |
+
+> **In diesem Netzsegment stehen mehrere Home-Assistant-Instanzen.** Die
+> Heizungsinstanz ist **10.23.10.123**; der Name `homeassistant` löst auf eine
+> andere auf (10.14.70.14), die zwar auf 8123 antwortet, aber kein ebusd hat.
+> Am 2026-09-06 eine halbe Stunde gekostet: Port 8888 dort wies die Verbindung
+> ab, und das sah aus wie eine fehlende Freigabe. Wer von außen an ebusd will,
+> nimmt die **IP**, nicht den Namen.
+>
+> Von innerhalb von Home Assistant ist es weiterhin `2ad9b828-ebusd:8888` --
+> so spricht auch die Integration mit ebusd, und dafür braucht es keinen
+> veröffentlichten Port. Der ist nur für Werkzeuge von außen nötig, etwa
+> `tools/thermal_log.py`.
 
 ### Bus-Teilnehmer
 
@@ -88,6 +101,95 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   aufgehobener Sperre und einem Sollwert, der von 25,0 über 34,0 auf 39,0 °C
   lief. Bei einem Takt von rund 17 s (aus 974 Datetime-Broadcasts à 1/min
   gerechnet) sind das **rund 70 Minuten Wärmeanforderung**.
+- **Der Heizversuch vom 2026-09-06 (09:47–10:47, 120 Messzeilen à 30 s).**
+  Erster Betrieb der Heizfunktionen unter Beobachtung, aufgezeichnet mit
+  `tools/thermal_log.py`. Geschaltet wurde ausschließlich über Home Assistant.
+
+  *Die Schreibkette, Station für Station:* 10:11:07 Betriebsart noch `off`,
+  Sollwert 0, Heizsperre 1. **10:11:37** Betriebsart `on`, `hc FlowTempDesired`
+  springt auf **41,0 °C**. **10:12:07** `bai SetMode` trägt **42,0** und die
+  Heizsperre fällt auf 0. 10:12:37 Pumpe läuft, 10:13:37 Flamme. Kesselvorlauf
+  24 → 45 °C. Damit ist der Schreibpfad an einer Temperatur gemessen und nicht
+  mehr nur zurückgelesen.
+
+  *`sc SumBackflowSensor` ist der Sammelrücklauf.* Grundlinie 26,94–27,56 °C
+  über 24 Minuten — mit einem Wechsel der Solarpumpe mittendrin, den er nicht
+  bemerkt hat. Im Heizbetrieb Spitze **42,94 °C**, ein Hub von **15,4 K**,
+  beginnend 90 s nach dem ersten Heizwasser. Damit sind beide Hälften der
+  Zuordnung, die negative wie die positive, in einem Datensatz belegt.
+
+  *Die Kesselüberhöhung ist nicht konstant.* Beobachtete Paare Regler/Kessel:
+  40,0/42,0 · 40,0/43,0 · 40,5/42,0 · 41,0/42,0 · 41,0/43,0 — also 1,5–3 K,
+  und in verschiedenen Schrittweiten (Regler 0,5 K, Kessel 1 K).
+
+  *Die Heizkurve rechnet live.* Außentemperatur 14,12 → 15,12 °C, Sollwert
+  dabei 41,0 → 40,5 → 40,0.
+
+  *Der Mischer bleibt zu.* `mc FlowTemp` 23,50–26,81 °C, während der
+  Systemvorlauf auf 41 °C stand: 2,75 K passiv. Invariante 3 hält.
+
+  *Es gab keine Wärmeabnahme.* Die Pumpe lief 90 s und stand dann 31 Minuten,
+  obwohl die Anforderung durchgehend anlag; Spreizung konstant +3,0 K;
+  Abkühlrate danach 0,07 K/min; **ein einziger Brennerzyklus in 33 Minuten**.
+  Die kurze Pumpenlaufzeit ist dabei die Folge, nicht die Ursache: der Brenner
+  war nach 90 s am Sollwert, weil niemand Wärme abnahm. Die Heizkörper waren
+  vermutlich geschlossen — der Kellerkreis ist ohnehin hart abgesperrt. Der
+  Nachweis unter Last steht damit noch aus, siehe Punkt 4.
+
+  *Der Wasserdruck taugt nicht als Nachweis des Pumpenanlaufs.* 1,452–1,461 bar
+  über den ganzen Lauf, in Stufen von ~9 mbar. Der Brenner wertet den
+  Drucksprung in den Sekunden nach dem Anlaufen aus; bei 30 s Abtastung und
+  dieser Auflösung ist er nicht messbar. Der Beleg ist die **ausbleibende
+  F.75**.
+
+  *Zählerstände:* `HcPumpStarts` 54 819 → 54 820, alles andere unverändert.
+- **Der Warteschlangentakt macht Zustandsanzeigen unbrauchbar.** Im selben Lauf
+  gemessen: `bai Flame` meldete den Brennerstart **60–90 s zu spät**,
+  `bai Statenumber` stand bei brennender Flamme noch auf 31 („kein
+  Wärmebedarf"), `HcPumpStarts` zeigte den Pumpenstart erst nach Minuten.
+  Zeitgerecht war ausschließlich, was das Bedienteil selbst pollt:
+  `bai Status01` und `bai SetMode` mit 17 s. Für ruhende Werte ist die
+  Warteschlange richtig, für Zustände nicht — siehe Punkt 10.
+- **Ein Ausreißer mit gültigem Fühlerstatus.** Am 2026-09-06 um 10:15:37
+  meldete `hc SumFlowSensor` **16,81 °C** zwischen 33,62 und 39,12 — 11 K
+  daneben, eine einzelne Abtastung, danach wieder exakt auf der Kurve, und das
+  Statusfeld stand auf `ok`. Gegenprobe im selben Moment: `ui FlowTemp` und
+  `hc SumFlowSensor` frisch vom Bus lieferten 39,12 und 39,31. Das ist die
+  unangenehme Variante des Problems aus Invariante 4: dort meldet ein fehlender
+  Fühler wenigstens `cutoff`, hier kommt ein plausibler Zahlenwert mit gültigem
+  Status und landet als Spitze in der Langzeitstatistik. **Ein einzelnes
+  Vorkommnis rechtfertigt keinen Plausibilitätsfilter** — ein solcher Filter
+  versteckt am Ende echte Sprünge. Der Eintrag steht hier, damit ein zweites
+  Vorkommnis nicht wieder als Einzelfall durchgeht.
+- **Der Wärmeerzeuger ist eine Therme, kein Kessel.** Der Unterschied ist die
+  Bauform: „Kessel" ist bodenstehend mit großem Wasserinhalt, „Therme"
+  wandhängend und kompakt — normativ heißt beides Heizkessel, „Therme" ist
+  Sprachgebrauch. Bei Vaillant ist `VC` das wandhängende Heizgerät, `VCW`
+  dasselbe mit Warmwasserbereitung, `VK` der bodenstehende Kessel. Dieses
+  Gerät ist ein VC: `bai HwcTemp` meldet `circuit` (kein WW-Vorlauffühler),
+  `bai StorageTemp` meldet `cutoff` (kein geräteseitiger Speicher), und der
+  Benutzer hat es am 2026-09-05 als wandhängend ohne Speicher bestätigt; die
+  Kennung `BAI00` gehört zur atmoTEC/turboTEC-Reihe. Das Gerät heißt in Home
+  Assistant deshalb seit 0.3.2 **„Therme"**.
+
+  Praktische Folge für die Messung: eine Therme hat wenige Liter Wasserinhalt.
+  Eine schnelle Aufheizrate ist deshalb eine Eigenschaft des Geräts und kein
+  Befund über die Last — und an einer Sommerlast taktet sie zwangsläufig, weil
+  ihr die Puffermasse fehlt.
+- **Die Typenbezeichnung steht nicht auf dem Bus, die Seriennummer schon.**
+  `scan result` liefert je Teilnehmer zwölf Spalten: Adresse, Hersteller,
+  Kennung, SW, HW und die sieben Felder der Nachricht `Scan.<zz> Id`
+  (`prefix`, `year`, `week`, `product`, `supplier`, `counter`, `suffix`). Die
+  sieben sind 2+2+2+10+4+6+2 = **28 Zeichen breit und ergeben aneinandergehängt
+  genau die Seriennummer vom Typenschild**. `supplier=0907` ist dabei kein
+  Datum, sondern der Lieferantencode; das Baujahr steckt in `year`/`week`.
+
+  Am Brenner sind diese sieben Felder **leer** — kein Zufall, sondern der
+  Grund, aus dem ebusd seine Definition über `[Scan_id_product='']` lädt. Was
+  er hat: `bai SerialNumber` (HEX:8, „Seriennummer AI"), als ASCII gelesen
+  `SB206740`, und `bai BoilerType = 6` — ein Code ohne Werteliste in der
+  ebusd-Definition, die Zuordnung zur Gerätereihe steht nur in Vaillants
+  Servicedokumentation.
 - **`ui BoilerHoursB1` sind Ansteuerstunden, jetzt zweifach belegt.** Der
   Regler meldet 60 836 h, der Brenner selbst zählt 7098 h Heizbetrieb
   (`bai HcHours`), 657 h Warmwasser und 8174 h Lüfter. Die Zahlen haben
@@ -846,6 +948,26 @@ Sammelvorlauf der Anlage (`VF1`, identisch mit `ui FlowTemp`). Und die
 beim Anlegen aus Geräte- und Entitätsnamen. Wer sie geradeziehen will, benennt
 sie von Hand um; die `unique_id` und damit die Historie bleiben in jedem Fall.
 
+**Seriennummern nur dort, wo ein Gerät steht.** `DeviceInfo` in Home Assistant
+kennt `sw_version`, `hw_version` und `serial_number`; sie zu füllen ist eine
+Frage der Wahrheit, nicht der Vollständigkeit. Die fünf Kreise des Reglers
+melden im Scan nicht nur dieselbe Artikelnummer, sondern denselben
+Produktionszähler (`counter=005114`) — es ist ein Gerät auf fünf Busadressen.
+Eine Seriennummer an jedem einzelnen behauptete fünf Geräte, wo eines steht.
+Sie steht deshalb am Regler selbst und an den beiden Teilnehmern, die wirklich
+eigene Geräte sind: Bedienteil (Ident 0020080465) und Therme. Das
+Erkennungsmerkmal im Code ist keine zweite Liste, sondern die Sache selbst: wer
+ein eigenes `model` in `const.CIRCUITS` trägt, ist ein eigenes Gerät.
+
+Gelesen wird das mit einem einzigen `scan result` beim Setup — ein Befehl für
+alle Adressen, und kein Telegramm auf dem Bus, weil ebusd nur ausgibt, was der
+Scan ohnehin ergeben hat. Niemals `scan` ohne `result`: das stößt einen echten
+Scan an und wirft die Poll-Liste heraus.
+
+Seit 0.3.2 trägt der Regler dabei seinen **eigenen** Softwarestand (0500) statt
+der Version von ebusd. ebusd ist nicht das Gerät, das die Geräteseite
+beschreibt; seine Version steht in den Diagnosedaten.
+
 **Beschriftungen folgen dem Bedienteil, nicht dem Datentyp.** Wer bei einer
 Störung am Regler steht, soll dort dieselben Wörter lesen wie in Home
 Assistant. Maßgeblich ist die Bedienungsanleitung 0020094390; die Einzelheiten
@@ -935,14 +1057,27 @@ ohne HA-Installation.
    `low`, mit Totzone und Mindestabstand zwischen Schaltvorgängen (Trägheit
    liegt bei Stunden). Offen, ob die Stellantriebe Prozentwerte liefern
    (`HmIP-FALMOT-C12`) oder nur auf/zu.
-4. **Thermischer Nachweis der Heizfunktionen.** Der Kessel ist eingebunden
-   (siehe unten), aber alle Schreibpfade sind bis heute nur zurückgelesen, nie
-   an einer Temperatur gemessen. Der nächste Heizzyklus ist die Gelegenheit:
-   `hc OperatingMode` setzen und Sammelvorlauf, Sammelrücklauf,
-   `bai Status01` und `bai SetMode` mitschreiben. Damit fiele nebenbei der
-   letzte Beleg für `sc SumBackflowSensor` — die These „Sammelrücklauf der
-   Heizung, tot auf Kellerniveau, weil der Brenner aus ist" steht bisher auf
-   einer Messreihe ganz ohne Wärme.
+4. **Thermischer Nachweis der Heizfunktionen — der Nachweis unter Last fehlt
+   noch.** Der Lauf vom 2026-09-06 hat den Schreibpfad und den Sammelrücklauf
+   entschieden (siehe Abschnitt 1); beides brauchte nur Wärme, keine Abnahme.
+   Offen bleibt der Betrieb mit echter Last: an jenem Vormittag nahm niemand
+   Wärme ab, der Brenner war nach 90 s am Sollwert und zündete in 33 Minuten
+   ein einziges Mal.
+
+   Vor dem nächsten Lauf: die Thermostate der Heizkörper des `hc`-Kreises
+   montiert und aufgedreht — nicht alle, die größten Räume genügen als
+   definierte Last. Die Fußbodenheizung ist nicht beteiligt (`mc` bleibt aus,
+   der Mischer blieb nachweislich zu), ihre alten Thermostatköpfe können also
+   warten. Der abgesperrte Kellerkreis ist unkritisch, gehört aber als bekannt
+   fehlender Abnehmer ins Protokoll.
+
+   Damit der nächste Lauf die Frage selbst beantwortet, statt sie der
+   Auswertung zu überlassen, gelten diese Kriterien für „es gab Abnahme":
+   Spreizung über 8 K während des Pumpenlaufs, Pumpe länger als 10 Minuten am
+   Stück, mindestens zwei Brennerzyklen, Abkühlrate über 0,3 K/min. Außerdem
+   fehlt weiterhin Phase 2, die Sollwertsprünge (Heizkurve, Raumsoll,
+   Absenkbetrieb) — sie prüfen die Rechnung des Reglers und brauchen keine
+   Last, nur Zeit.
 5. **`ui YieldThisYear` wird doppelt so oft abgefragt wie `YieldLastYear`**
    (72 gegen 36 Anfragen bei gleicher Priorität). Beide stehen inzwischen
    außerhalb der Warteschlange, der Punkt ist damit unkritisch — die Frage
@@ -969,7 +1104,23 @@ ohne HA-Installation.
    AccessoriesOne` (d.27) steht auf `circulationpump`, das Zubehörrelais 1 des
    Kessels ist also ebenfalls als ZP konfiguriert. Welcher der beiden Ausgänge
    verdrahtet ist, entscheidet, wo nachzusehen ist.
-9. **Der Fehlerspeicher des Kessels hat keine Entität.** `bai Errorhistory`
+9. **`bai HcStarts` zählt nicht, was seine Beschriftung behauptet.** Am
+   2026-09-06 stand der Zähler vor und nach einem nachgewiesenen Brennerzyklus
+   unverändert auf 264 700, während `HcPumpStarts` im selben Fenster um genau
+   1 stieg (54 819 → 54 820) — die Zähler werden also zeitnah nachgeführt, nur
+   dieser eine bewegt sich nicht. Bei 264 700 „Starts" auf 7098 Betriebsstunden
+   wären es 37 pro Stunde; die Auslegung „Schaltspiele Heizbetrieb" ist damit
+   nicht haltbar. Ein zweiter Zyklus würde es erhärten, dann ist die Entität
+   umzubenennen oder zu entfernen.
+10. **Zustandsanzeigen gehören nicht in die Warteschlange.** `bai Flame` und
+   `bai Statenumber` hinken dem Geschehen um 60–90 s bzw. Minuten hinterher
+   (Abschnitt 1). Ein Kandidat wäre `READ_MAXAGE` mit kurzem Höchstalter: ein
+   `read -m 30` je Abrufzyklus kostet höchstens ein Telegramm pro Minute und
+   brächte die Flammenmeldung auf unter 60 s. Zu prüfen ist zugleich, welche
+   *anderen* Entitäten schneller veralten, als ihre Anzeige vermuten lässt --
+   und welche Beschriftung wie bei `HcStarts` auf einer Annahme statt auf einer
+   Messung ruht.
+11. **Der Fehlerspeicher des Kessels hat keine Entität.** `bai Errorhistory`
    trägt F.75, lässt sich aber nicht pollen (Master-Feld für den Index). Ein
    Weg wäre, ihn wie `READ_MAXAGE` selbst zu holen — dann allerdings mit `-i`,
    was der Client bislang nicht kennt. Zurückgestellt, solange
@@ -1012,12 +1163,24 @@ seine beiden Entitäten als einzige kein Netz beim Aufwärmen des
 Zwischenspeichers, denn gelesen werden darf es nicht.
 
 Das Gerät hieß zunächst „auroMATIC Kessel", dem Muster der übrigen Kreise
-folgend; seit 0.3.1 heißt es schlicht **„Kessel"**. Es ist ein eigener
-Teilnehmer am Bus, und über einer Modellzeile „Vaillant BAI00" war der alte
-Name eine Behauptung, die ihr widersprach. `const.CIRCUITS` kennt dafür zwei
-optionale Felder — `model` seit dem 2026-09-04, `device_name` seit 0.3.1 —,
-alles Übrige leitet `entity.py` weiter aus Name und Adresse ab. Bestehende
-`entity_id`s folgen der Umbenennung nicht; die Historie bleibt.
+folgend, seit 0.3.1 „Kessel" und seit 0.3.2 **„Therme"** — die Bauform ist
+belegt, siehe Abschnitt 1. `const.CIRCUITS` kennt dafür zwei optionale Felder,
+`model` und `device_name`; alles Übrige leitet `entity.py` weiter aus Name und
+Adresse ab. Bestehende `entity_id`s folgen den Umbenennungen nicht; die
+Historie bleibt.
+
+Erledigt am 2026-09-06: der **Heizversuch** (Abschnitt 1) hat den Schreibpfad
+und den Sammelrücklauf entschieden, dazu vier Nebenbefunde geliefert — die
+nicht konstante Kesselüberhöhung, die live rechnende Heizkurve, den
+Warteschlangentakt als Grenze für Zustandsanzeigen und einen Ausreißer mit
+gültigem Fühlerstatus. Zwei neue offene Punkte sind daraus entstanden (9
+und 10), einer ist geschrumpft (4: es fehlt nur noch der Nachweis unter Last).
+Gemessen wurde mit `tools/thermal_log.py`, die Rohdaten liegen außerhalb des
+Repos.
+
+Ebenfalls am 2026-09-06: die **Geräteseite** trägt jetzt die echten Kenndaten
+der drei tatsächlichen Busteilnehmer — Regler, Bedienteil und Therme — mit
+Software-, Hardwarestand und Seriennummer aus `scan result`.
 
 ## 6. Versionsverwaltung
 

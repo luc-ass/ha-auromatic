@@ -145,6 +145,16 @@ class EbusdClient:
                 polled = int(value.strip() or 0)
         return scan_done, polled
 
+    async def scan_result(self) -> dict[str, dict[str, str]]:
+        """Was ebusd beim Scannen über die Teilnehmer erfahren hat.
+
+        Ein Befehl für alle Adressen, und kein Buszugriff: 'scan result' gibt
+        nur aus, was ohnehin gespeichert ist. Niemals 'scan' ohne 'result' --
+        das stößt einen echten Scan an, und der wirft die Poll-Liste heraus
+        (Invariante 6, am 2026-09-04 an der Anlage beobachtet).
+        """
+        return parse_scan(await self.command("scan result"))
+
     async def version(self) -> str:
         """Versionsstring von ebusd -- dient auch als Verbindungstest."""
         lines = await self.command("info")
@@ -224,6 +234,61 @@ class EbusdClient:
         except EbusdError as err:
             _LOGGER.debug("Nachlesen von %s %s fehlgeschlagen: %s", circuit, read_message, err)
             return None
+
+
+# Die Spalten einer Zeile aus 'scan result':
+#   26;Vaillant;SOLSY;0500;6301;21;16;12;0020076588;0907;005114;N4
+# Die ersten fünf kommen aus der Scan-Antwort selbst, die übrigen sieben aus
+# der Nachricht 'Scan.<zz> Id' -- ihre Feldnamen stehen so in der
+# ebusd-Definition. Aneinandergehängt ergeben die sieben genau die
+# 28-stellige Seriennummer vom Typenschild (2+2+2+10+4+6+2).
+_SCAN_KOPF = ("address", "manufacturer", "id", "sw", "hw")
+_SCAN_SERIAL = ("prefix", "year", "week", "product", "supplier", "counter", "suffix")
+
+
+def parse_scan(zeilen: list[str]) -> dict[str, dict[str, str]]:
+    """Die Antwort von 'scan result' nach Busadresse aufschlüsseln.
+
+    Nicht jeder Teilnehmer füllt alle Felder: der Brenner meldet
+    ';;;;;;' als Kennung, seine Artikelnummer ist leer, und genau deshalb
+    lädt ebusd seine Definition über den Zweig [Scan_id_product='']. Fehlt
+    ein Feld, fehlt es -- erfunden wird nichts.
+    """
+    teilnehmer: dict[str, dict[str, str]] = {}
+    for zeile in zeilen:
+        felder = [f.strip() for f in zeile.split(";")]
+        if len(felder) < len(_SCAN_KOPF):
+            continue
+        eintrag = {
+            name: wert for name, wert in zip(_SCAN_KOPF, felder) if wert
+        }
+        adresse = eintrag.pop("address", "")
+        if not adresse:
+            continue
+        rest = felder[len(_SCAN_KOPF):]
+        if len(rest) == len(_SCAN_SERIAL) and all(rest):
+            eintrag["serial"] = "".join(rest)
+            eintrag["product"] = rest[_SCAN_SERIAL.index("product")]
+            eintrag["built"] = f"KW {rest[2]}/20{rest[1]}"
+        teilnehmer[adresse.lower()] = eintrag
+    return teilnehmer
+
+
+def hex_text(raw: str | None) -> str | None:
+    """Ein HEX-Feld von ebusd als Text lesen.
+
+    'bai SerialNumber' ist als HEX:8 definiert und kommt als Bytefolge
+    '53 42 32 ...' -- darin steckt ASCII, hier 'SB206740'. Alles, was sich
+    nicht als druckbarer Text lesen lässt, gilt als kein Wert.
+    """
+    if not raw:
+        return None
+    try:
+        zeichen = bytes(int(b, 16) for b in raw.split())
+    except ValueError:
+        return None
+    text = zeichen.decode("ascii", errors="ignore").strip()
+    return text if text.isprintable() and text else None
 
 
 def carry_forward(

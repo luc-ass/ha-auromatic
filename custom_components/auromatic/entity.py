@@ -12,6 +12,35 @@ from .const import CIRCUITS, DOMAIN, ROOT_DEVICE
 from .coordinator import AuromaticCoordinator
 
 
+def _identity(coordinator: AuromaticCoordinator, circuit: str) -> dict[str, str]:
+    """Software, Hardware und Seriennummer eines Kreises -- wenn er eines ist.
+
+    Die fünf Kreise des Reglers (`hc`, `mc`, `hwc`, `cc`, `sc`) melden im Scan
+    dieselbe Artikelnummer *und* denselben Zähler: es ist ein Gerät auf fünf
+    Busadressen. Eine Seriennummer an jedem einzelnen würde in Home Assistant
+    fünf Geräte behaupten, wo eines steht -- `serial_number` ist dort die
+    Identität eines physischen Geräts. Sie steht deshalb nur am Regler selbst
+    (in __init__.py) und an den beiden Teilnehmern, die wirklich eigene Geräte
+    sind: Bedienteil und Therme.
+
+    Erkennungsmerkmal ist nicht eine Liste, sondern die Sache selbst: nur wer
+    ein eigenes `model` in const.CIRCUITS trägt, ist ein eigenes Gerät.
+    """
+    if "model" not in CIRCUITS[circuit]:
+        return {}
+    daten = coordinator.participant(circuit)
+    identity: dict[str, str] = {}
+    if sw := daten.get("sw"):
+        identity["sw_version"] = sw
+    if hw := daten.get("hw"):
+        identity["hw_version"] = hw
+    # Die Therme hat keine Seriennummer am Bus -- ihre Kennung kommt leer
+    # zurück. Was sie hat, ist die Nummer ihrer Elektronik.
+    if serial := (daten.get("serial") or daten.get("board_serial")):
+        identity["serial_number"] = serial
+    return identity
+
+
 @dataclass(frozen=True, kw_only=True)
 class CircuitMixin:
     """Bindet eine Entität an einen Kreis und eine ebusd-Nachricht.
@@ -100,17 +129,18 @@ class AuromaticEntity(CoordinatorEntity[AuromaticCoordinator]):
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, f"{entry_id}_{description.device}")},
                 # Voreinstellung ist der Regler -- die Kreise sind Teile
-                # von ihm und tragen seinen Namen. Nur der Kessel nicht.
+                # von ihm und tragen seinen Namen. Nur die Therme nicht.
                 name=circuit.get("device_name", f"auroMATIC {circuit['name']}"),
                 manufacturer="Vaillant",
                 # Voreinstellung ist der Regler selbst -- alle Kreise sind
-                # Teile von ihm. Nur der Kessel ist ein eigenes Gerät am Bus
-                # und nennt sein Modell deshalb in const.CIRCUITS.
+                # Teile von ihm. Therme und Bedienteil sind eigene Geräte am
+                # Bus und nennen ihr Modell deshalb in const.CIRCUITS.
                 model=circuit.get(
                     "model",
                     f"auroMATIC 620/3 ({description.device} @ {circuit['address']})",
                 ),
                 via_device=(DOMAIN, entry_id),
+                **_identity(coordinator, description.device),
             )
 
     @property
