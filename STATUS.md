@@ -142,6 +142,11 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   dieser Auflösung ist er nicht messbar. Der Beleg ist die **ausbleibende
   F.75**.
 
+  Auf Temperatur reagiert derselbe Wert dagegen sehr wohl: zwei Stunden nach
+  dem Versuch, mit noch warmer Anlage, stand er bei **1,541 bar** — 80 mbar
+  über dem Ausgangswert, reine Wärmeausdehnung. Der Fühler ist also nicht zu
+  träge, der Effekt beim Pumpenanlauf ist zu schnell und zu klein.
+
   *Zählerstände:* `HcPumpStarts` 54 819 → 54 820, alles andere unverändert.
 - **Der Warteschlangentakt macht Zustandsanzeigen unbrauchbar.** Im selben Lauf
   gemessen: `bai Flame` meldete den Brennerstart **60–90 s zu spät**,
@@ -172,6 +177,28 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Kennung `BAI00` gehört zur atmoTEC/turboTEC-Reihe. Das Gerät heißt in Home
   Assistant deshalb seit 0.3.2 **„Therme"**.
 
+  *Welche der beiden Reihen, sagt das Gebläse.* Am 2026-09-06 am Bus gelesen:
+  `bai FanHours` = 8174, `bai FanStarts` = 50 255. Dem stehen 7755
+  Brennerstunden gegenüber (7098 Heizen + 657 Warmwasser) — das Verhältnis ist
+  das eines Gebläses, das bei jedem Zyklus mit Vor- und Nachspülung mitläuft.
+  Ein **atmoTEC** ist im Naturzug ausgelegt und hat kein Gebläse, sondern eine
+  Strömungssicherung; das Gerät gehört also zur **turboTEC**-Seite. Dazu passen
+  `bai AircontrolOk`, die APS-Zähler (Luftdruckwächter) und `bai Fluegasvalve`.
+
+  Der Benutzer hat am Gehäuse einen Ansaugstutzen gesehen und daraus auf ein
+  raumluftabhängiges Gerät geschlossen — der Stutzen ist aber gerade das
+  Merkmal des gebläseunterstützten. Beides schließt sich nicht aus: ein
+  turboTEC darf einrohrig betrieben werden (B23), Abgas über den Schornstein
+  und Verbrennungsluft aus dem Aufstellraum. Dann verhält es sich im Betrieb
+  raumluftabhängig, obwohl es ein turboTEC ist. Verbindlich entscheidet das
+  Typenschild; für die Integration ändert sich dadurch nichts.
+
+  *Die Heizleistung ist begrenzt.* `bai PartloadHcKW` = 12 gegen
+  `bai PartloadHwcKW` = 23: die Teillast für den Heizbetrieb steht auf 12 kW.
+  Das schärft den Befund des Heizversuchs — selbst mit halber Leistung war der
+  Sollwert nach 90 Sekunden erreicht. Ohne Abnahme hilft auch eine kleine
+  Flamme nichts.
+
   Praktische Folge für die Messung: eine Therme hat wenige Liter Wasserinhalt.
   Eine schnelle Aufheizrate ist deshalb eine Eigenschaft des Geräts und kein
   Befund über die Last — und an einer Sommerlast taktet sie zwangsläufig, weil
@@ -189,7 +216,12 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   er hat: `bai SerialNumber` (HEX:8, „Seriennummer AI"), als ASCII gelesen
   `SB206740`, und `bai BoilerType = 6` — ein Code ohne Werteliste in der
   ebusd-Definition, die Zuordnung zur Gerätereihe steht nur in Vaillants
-  Servicedokumentation.
+  Servicedokumentation. Ebenso `bai DSN` = 5148.
+
+  Eine Artikelnummer trägt das Gerät doch, nur nicht für sich selbst:
+  `bai PartnumberBox` = `00 20 09 24 78`, also **0020092478** — dasselbe
+  Zahlenformat wie bei Regler (0020076588) und Bedienteil (0020080465), aber
+  die Nummer der Elektronikbox, nicht der Therme.
 - **`ui BoilerHoursB1` sind Ansteuerstunden, jetzt zweifach belegt.** Der
   Regler meldet 60 836 h, der Brenner selbst zählt 7098 h Heizbetrieb
   (`bai HcHours`), 657 h Warmwasser und 8174 h Lüfter. Die Zahlen haben
