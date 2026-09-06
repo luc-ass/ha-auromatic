@@ -148,8 +148,8 @@ aber nie bei ebusd angemeldet wird.
 ## Neue Version veröffentlichen
 
 HACS bietet den Anwendern die GitHub-*Releases* an. Ein Release braucht deshalb
-zweierlei, und zwar gleichlautend: das Tag (`v0.3.1`) und das Feld `version` in
-`custom_components/auromatic/manifest.json` (`0.3.1`). Weichen sie voneinander
+zweierlei, und zwar gleichlautend: das Tag (`v0.3.2`) und das Feld `version` in
+`custom_components/auromatic/manifest.json` (`0.3.2`). Weichen sie voneinander
 ab, lädt HACS zwar die Dateien, meldet aber weiter die alte Version als
 installiert und bietet dasselbe Update immer wieder an.
 
