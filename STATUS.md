@@ -127,11 +127,40 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   der erste Fall, in dem der fehlende Fehlerspeicher tatsächlich etwas
   verdeckt hat.
 
-  *Vom Schornsteinfeger selbst ist nichts abzulesen.* `hc CleaningLady` und
-  `mc CleaningLady` — die Schornsteinfegerfunktion des Reglers — stehen auf 0,
-  und eine Abgasmessung dauert Minuten, verschwindet also in der
-  Stundenauflösung aller Zähler. Ihre Spur wäre höchstens ein Brennerstart
-  unter vielen.
+  *Der Vormittag steht vollständig im Recorder von Home Assistant.* Hier
+  stand zunächst, vom Schornsteinfeger sei nichts abzulesen — das war ein
+  Trugschluss aus der Gewohnheit, nur `tools/thermal_log.py` als Messmittel zu
+  denken. Der lief an dem Tag nicht, die Integration aber schon: die
+  Therme-Entitäten zeichnen seit 0.3.0 (2026-09-04) durch. `hc CleaningLady`
+  und `mc CleaningLady` stehen zwar auf 0, das ist aber nur die
+  Schornsteinfegerfunktion *des Reglers*; gemessen wurde am Gerät.
+
+  Vier Brennerläufe, aus der Historie am 2026-09-13 gelesen:
+
+  | Zeit (MESZ) | Anlass | Vorlauf max | Rücklauf max | Spreizung |
+  |---|---|---|---|---|
+  | 09:32:50–09:34:20 | Regler, Sollwert 45 | 50 | 47 | **3 K** |
+  | 11:01:25–11:05:43 | Volllast | 66 | 56 | 9–10 K |
+  | 11:07:28–11:11:42 | Teillast | 48 | 42 | 6 K |
+  | 12:16:19–12:21:49 | Volllast | 69 | 59 | 9–10 K |
+
+  Zusammen rund eine Viertelstunde Brennerzeit — deshalb steht `HcHours`
+  unverändert, der Zähler löst in ganzen Stunden auf.
+
+  **Die Rücklaufwerte der Volllastläufe sind kein Effizienzbefund.** 56–59 °C
+  liegen über dem Abgastaupunkt von rund 55 °C, in diesen Minuten hat die
+  Therme also nicht kondensiert. Das ist der Zweck der Abgasmessung: Volllast
+  gegen eine Anlage ohne Wärmeabnahme, damit das Abgas heiß und messbar ist.
+  Wer daraus auf den Normalbetrieb schließt, misst die Prüfbedingung.
+
+  Aussagekräftig ist allein der Reglerlauf um 09:33: Sollwert 45, Rücklauf 47
+  — unter dem Taupunkt, also kondensierend, aber knapp. Und die **Spreizung
+  von 3 K** ist dieselbe wie am 2026-09-06; sie ist der eigentliche Befund,
+  siehe offener Punkt 13.
+
+  Nebenbei bestätigt die Spreizung die Gerätereihe ein zweites Mal: dass sie
+  bei gleichem Volumenstrom zwischen 3 K (Reglersollwert) und 9–10 K
+  (Volllast) wandert, ist moduliertes Brennerverhalten.
 
 - **Eine Woche Heizbetrieb, ohne eine volle Betriebsstunde** (2026-09-06 →
   2026-09-13). Die Zähler:
@@ -1186,7 +1215,10 @@ ohne HA-Installation.
    Damit der nächste Lauf die Frage selbst beantwortet, statt sie der
    Auswertung zu überlassen, gelten diese Kriterien für „es gab Abnahme":
    Spreizung über 8 K während des Pumpenlaufs, Pumpe länger als 10 Minuten am
-   Stück, mindestens zwei Brennerzyklen, Abkühlrate über 0,3 K/min. Außerdem
+   Stück, mindestens zwei Brennerzyklen, Abkühlrate über 0,3 K/min. Seit die
+   Bauart feststeht, kommt ein fünftes dazu: **Rücklauf unter 45 °C, solange
+   der Brenner läuft** — bei einem Brennwertgerät ist das der Unterschied
+   zwischen Nutzen und Nennen. Außerdem
    fehlt weiterhin Phase 2, die Sollwertsprünge (Heizkurve, Raumsoll,
    Absenkbetrieb) — sie prüfen die Rechnung des Reglers und brauchen keine
    Last, nur Zeit.
@@ -1288,6 +1320,59 @@ ohne HA-Installation.
    fehlt wie schon bei der 75 (`-:-`, `-.-.-`), die beiden Einträge lassen
    sich also nicht datieren — nur eingrenzen.
 
+12. **Ein Gerät, das vom Bus verschwindet, muss `unavailable` werden.** Am
+   2026-09-10 hatte der Techniker die Therme stromlos. Von 09:34:35 bis
+   10:59:25 — 85 Minuten — hat sich daraufhin kein einziger `bai`-Wert mehr
+   geändert: Vorlauf 47, Rücklauf 48, Flamme `on`, Wasserdruck 1,612, alles
+   eingefroren, während `Sammelvorlauf` und `Sammelrücklauf` aus `hc` und `sc`
+   im selben Fenster alle 15–30 s weiterliefen. Um 10:59:25 springen sämtliche
+   Kesselwerte gleichzeitig auf den echten Stand (28/28). **`unavailable` war
+   dabei keine der Entitäten, zu keinem Zeitpunkt des Tages** — in der
+   Historie geprüft.
+
+   Der Schaden ist nicht theoretisch: die Flammenanzeige stand 85 Minuten
+   lang auf `on`, und wer die Historie ohne diesen Zusammenhang liest, sieht
+   einen 85-Minuten-Brennerlauf, den es nie gab. Aufgefallen ist es nur, weil
+   `HcHours` dazu nicht passte.
+
+   Das ist der Ausfall aus `poll.py`, aber mit anderer Ursache: nicht eine
+   verlorene Poll-Liste, sondern ein abwesendes Gerät. ebusd kennt `bai`
+   weiterhin, hat die CSV geladen und beantwortet `find` aus dem
+   Zwischenspeicher — der Wert ist da, nur beliebig alt. Die vorhandene
+   Behandlung greift deshalb nicht: `_unknown_circuits` deckt den Fall ab,
+   dass ebusd den Kreis *gar nicht* kennt (Therme beim Start von ebusd
+   stromlos), und `carry_forward` den Fall, dass ein Register *fehlt*. Hier
+   fehlt nichts, es altert nur.
+
+   Ein Weg wäre, das Alter mitzulesen: ebusd kann es liefern
+   (`find -v` nennt es je Nachricht), und ein Wert, der älter ist als ein
+   Vielfaches seines Poll-Abstands, gehört als `unavailable` gemeldet. Zu
+   klären ist der Schwellwert je Prioritätsstufe — Stufe 9 kommt planmäßig
+   erst nach 21 Minuten wieder dran, da wären 85 Minuten kein Ausreißer,
+   Stufe 1 dagegen sehr wohl.
+13. **Die Raumsolltemperatur des Heizkreises steht auf 25 °C — und das ist
+   ein Effizienzhebel, kein Komfortwert.** Die Vaillant-Heizkurve ist auf den
+   Raumsollwert bezogen: ein um 4 K erhöhter Sollwert schiebt die ganze Kurve
+   mit nach oben. Mit Kurve 1,00 und `FlowTempMax` 50 läuft der Vorlauf bei
+   0 °C Außentemperatur damit in die Begrenzung, und bei der gemessenen
+   Spreizung von 3 K kommt der Rücklauf mit rund 47 °C zurück — dicht unter
+   dem Abgastaupunkt von etwa 55 °C, also gerade noch kondensierend. Mit
+   21 °C Raumsoll und derselben Kurve wären es etwa 42 Vorlauf und 39
+   Rücklauf.
+
+   Seit die Therme als Brennwertgerät feststeht (Abschnitt 1), ist das kein
+   Randwert mehr: unter 55 °C Rücklauf kondensiert es, unter 45 °C richtig,
+   und der Unterschied ist der Wirkungsgrad. Der Mischerkreis ist davon nicht
+   betroffen — 40 °C Vorlaufgrenze und Kurve 0,50 liegen sauber im
+   Kondensationsbereich.
+
+   **Nicht ohne Lastnachweis verstellen.** Die 3 K sind ein Leerlaufwert; mit
+   offenen Thermostaten wächst die Spreizung und der Rücklauf fällt von
+   allein. Ob die 25 °C überhaupt drücken, zeigt erst Punkt 4 — und ob der
+   Heizkreis mit weniger Vorlauf noch warm wird, auch. Der Punkt steht hier,
+   damit die Zahl beim nächsten Lauf mit auf dem Zettel steht, nicht als
+   Aufforderung, an ihr zu drehen.
+
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
 siehe „Die Reglerbezeichnungen stehen in der archivierten CSV" unten.
@@ -1370,6 +1455,21 @@ sich stimmig: Jahressumme 609 kWh am 2026-09-02, 663 kWh am 2026-09-13, also
 
 Verschärft: **offener Punkt 11.** Zwei Einträge im Fehlerspeicher des Brenners
 sind aufgelaufen, ohne dass die Integration etwas gezeigt hätte.
+
+Ebenfalls am 2026-09-13, in einem zweiten Durchgang: der **Wartungsvormittag
+aus dem Recorder von Home Assistant** (Abschnitt 1). Der erste Durchgang hatte
+ihn abgeschrieben, weil `tools/thermal_log.py` an dem Tag nicht lief — die
+Integration zeichnet aber seit dem 2026-09-04 durch, und damit liegen vier
+Brennerläufe samt Vorlauf, Rücklauf und Spreizung vor. Zwei neue offene Punkte
+sind daraus geworden: der eingefrorene Kessel (12) und die Raumsolltemperatur
+als Effizienzhebel (13). Die Zugangsdaten für die REST-API liegen in
+`~/.config/auromatic/ha-token`, außerhalb des Repos.
+
+Zwei Lehren, die über den Tag hinausgehen. Erstens: **die Historie von Home
+Assistant ist ein Messmittel.** Sie stand die ganze Zeit zur Verfügung und
+wurde nicht genutzt, weil der Blick auf dem eigenen Rekorder lag. Zweitens:
+die Zeitstempel der REST-API kommen in **UTC** — im ersten Anlauf hat das zwei
+Stunden Versatz erzeugt und die Läufe an der falschen Stelle gesucht.
 
 ## 6. Versionsverwaltung
 
