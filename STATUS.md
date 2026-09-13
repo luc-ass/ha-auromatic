@@ -1,6 +1,6 @@
 # Stand der Umsetzung
 
-Stand: 2026-09-04. Planungsdokument mit Herleitung und Registerkarte:
+Stand: 2026-09-13. Planungsdokument mit Herleitung und Registerkarte:
 <https://claude.ai/code/artifact/e2491a1b-e82f-496d-95e7-3a4633908ec0>
 
 ---
@@ -101,6 +101,60 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   aufgehobener Sperre und einem Sollwert, der von 25,0 über 34,0 auf 39,0 °C
   lief. Bei einem Takt von rund 17 s (aus 974 Datetime-Broadcasts à 1/min
   gerechnet) sind das **rund 70 Minuten Wärmeanforderung**.
+- **Wartung am 2026-09-10, am Bus nachweisbar.** Wartung und Schornsteinfeger
+  waren an dem Tag da; nachgelesen wurde am 2026-09-13. Vier Register tragen
+  etwas dazu bei, zwei davon eindeutig:
+
+  | Register | Wert | |
+  |---|---|---|
+  | `ui ServicePeriod` | **10.09.2027** | genau ein Jahr nach der Wartung — der Termin ist gesetzt worden |
+  | `bai WaterPressure` | 1,461 → **1,550 bar** | beide Male kalt gemessen, also nachgefüllt |
+  | `bai Errorhistory` | Platz 0 und 1 auf **70**, Platz 2–9 auf 75 | zwei neue Einträge seit dem 2026-09-04 |
+  | `bai HoursTillService` | 3010 h | vorher nie protokolliert, kein Vergleich möglich |
+
+  `ui ServicePeriod` ist der belastbarste der drei: ein Datum, das niemand
+  anders setzt als der, der die Wartung gemacht hat. Es ist seit dem
+  2026-09-13 als Entität eingebunden (Sensor „Wartung" am Regler,
+  `SensorDeviceClass.DATE`) — vorher stand nirgends, wann zuletzt jemand an
+  der Anlage war.
+
+  Der Wasserdruck ist der Vergleich zweier kalter Messungen: 1,461 bar am
+  2026-09-04 bei stehendem Brenner, 1,550 bar am 2026-09-13 bei 24 °C
+  Vorlauf. Die 1,541 bar vom 2026-09-06 gehören nicht in die Reihe, die waren
+  an der warmen Anlage gemessen und reine Ausdehnung.
+
+  Die beiden Fehlereinträge stehen bei den offenen Punkten (11) — sie sind
+  der erste Fall, in dem der fehlende Fehlerspeicher tatsächlich etwas
+  verdeckt hat.
+
+  *Vom Schornsteinfeger selbst ist nichts abzulesen.* `hc CleaningLady` und
+  `mc CleaningLady` — die Schornsteinfegerfunktion des Reglers — stehen auf 0,
+  und eine Abgasmessung dauert Minuten, verschwindet also in der
+  Stundenauflösung aller Zähler. Ihre Spur wäre höchstens ein Brennerstart
+  unter vielen.
+
+- **Eine Woche Heizbetrieb, ohne eine volle Betriebsstunde** (2026-09-06 →
+  2026-09-13). Die Zähler:
+
+  | Register | 06.09. | 13.09. | |
+  |---|---|---|---|
+  | `bai HcHours` | 7098 | 7098 | unverändert |
+  | `bai HwcHours` | 657 | 657 | unverändert |
+  | `bai FanHours` | 8174 | 8174 | unverändert |
+  | `bai FanStarts` | 50 255 | 50 262 | +7 |
+  | `bai HcPumpStarts` | 54 820 | 54 845 | +25, also ≈3,6/Tag |
+  | `ui BoilerHoursB1` | 60 836 | 60 838 | +2 |
+  | `bai DeactivationsIFC` | 1 | 1 | unverändert |
+
+  Das passt zusammen und ist kein Ausfall: die Heizkreise standen am
+  2026-09-13 auf `low`, `bai SetMode` trug weiterhin `disablehc` = 1, draußen
+  waren 17,4 °C. Der Regler fordert schlicht keine Wärme an. Sieben
+  Gebläsestarts in sieben Tagen sind Warmwasser und Blockierschutz, nicht
+  Heizbetrieb.
+
+  **Für Punkt 4 heißt das: die Woche zählt nicht.** Der Nachweis unter Last
+  braucht aufgedrehte Thermostate und Wärmeabnahme, nicht Laufzeit.
+
 - **Der Heizversuch vom 2026-09-06 (09:47–10:47, 120 Messzeilen à 30 s).**
   Erster Betrieb der Heizfunktionen unter Beobachtung, aufgezeichnet mit
   `tools/thermal_log.py`. Geschaltet wurde ausschließlich über Home Assistant.
@@ -178,7 +232,9 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Assistant deshalb seit 0.3.2 **„Therme"**.
 
   *Welche der beiden Reihen, sagt das Gebläse.* Am 2026-09-06 am Bus gelesen:
-  `bai FanHours` = 8174, `bai FanStarts` = 50 255. Dem stehen 7755
+  `bai FanHours` = 8174, `bai FanStarts` = 50 255 (der Startzähler nur
+  nachrichtlich — er ist `UIN` und steht dicht unter der 16-Bit-Decke, siehe
+  offener Punkt 9; das Argument hier trägt allein der Stundenzähler). Dem stehen 7755
   Brennerstunden gegenüber (7098 Heizen + 657 Warmwasser) — das Verhältnis ist
   das eines Gebläses, das bei jedem Zyklus mit Vor- und Nachspülung mitläuft.
   Ein **atmoTEC** ist im Naturzug ausgelegt und hat kein Gebläse, sondern eine
@@ -590,9 +646,9 @@ Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
 ### Verifiziert
 
 - ebusd-Protokollschicht gegen wortgetreue Antwortdaten der Anlage
-  (`tests/test_ebusd.py`, 40 Prüfungen).
+  (`tests/test_ebusd.py`, 69 Prüfungen).
 - Vollständigkeit von Übersetzungen und Icons gegen den Entitätsbestand
-  (`tests/test_translations.py`, 395 Prüfungen).
+  (`tests/test_translations.py`, 497 Prüfungen).
 - Dataclass-Komposition der Description-Klassen (Mehrfachvererbung mit
   `frozen=True, kw_only=True`) gegen strukturgleiche Nachbauten.
 - **Bedienung in Home Assistant:** Die Integration lädt, die Betriebsart lässt
@@ -1136,14 +1192,45 @@ ohne HA-Installation.
    AccessoriesOne` (d.27) steht auf `circulationpump`, das Zubehörrelais 1 des
    Kessels ist also ebenfalls als ZP konfiguriert. Welcher der beiden Ausgänge
    verdrahtet ist, entscheidet, wo nachzusehen ist.
-9. **`bai HcStarts` zählt nicht, was seine Beschriftung behauptet.** Am
-   2026-09-06 stand der Zähler vor und nach einem nachgewiesenen Brennerzyklus
-   unverändert auf 264 700, während `HcPumpStarts` im selben Fenster um genau
-   1 stieg (54 819 → 54 820) — die Zähler werden also zeitnah nachgeführt, nur
-   dieser eine bewegt sich nicht. Bei 264 700 „Starts" auf 7098 Betriebsstunden
-   wären es 37 pro Stunde; die Auslegung „Schaltspiele Heizbetrieb" ist damit
-   nicht haltbar. Ein zweiter Zyklus würde es erhärten, dann ist die Entität
-   umzubenennen oder zu entfernen.
+9. ~~**`bai HcStarts` zählt nicht, was seine Beschriftung behauptet.**~~
+   **Erledigt am 2026-09-13 — die Beschriftung stimmt, die Auflösung war das
+   Problem.** Die ebusd-Definition sagt es unmittelbar:
+
+   ```
+   r9,bai,HcStarts,d.82 Schaltspiele Heizbetrieb,,08,b509,0d2900,value,s,UIN,-100,,
+   ```
+
+   Ein negativer Teiler ist bei ebusd ein Faktor: der Rohwert 2647 wird mit
+   100 malgenommen. Die beiden fehlenden Stellen stehen in einem eigenen
+   Register, `bai HcUnderHundredStarts` („Heat switch cycles under hundred"),
+   und standen am 2026-09-13 auf 2. Der Stand ist also **264 702**, und der
+   Zähler steht nicht still — er rührt sich nur alle hundert Starts. Dasselbe
+   Paar gibt es für Warmwasser: `HwcStarts` 3400 + `HwcUnderHundredStarts` 2
+   = 3402.
+
+   Damit fällt die Beobachtung vom 2026-09-06 in sich zusammen, und die vom
+   2026-09-13 dazu: eine ganze Woche samt Wartung, sieben Gebläsestarts, und
+   das Hauptregister unverändert. Erwartbar. Aus einem Stillstand über weniger
+   als hundert Zyklen folgt nichts.
+
+   Die Entität summiert seit dem 2026-09-13 beide Register (`plus_message` in
+   `sensor.py`); beide stehen auf Stufe 9 im Poll-Satz.
+
+   **Was offen bleibt, ist die Größenordnung.** 264 702 Starts auf 7098
+   Betriebsstunden sind 37 pro Stunde, also 96 s je Zyklus im Lebensmittel —
+   viel, aber für eine Therme ohne Puffer nicht unmöglich. Dagegen steht
+   `bai FanStarts` = 50 262, obwohl das Gebläse bei jedem Zyklus mitläuft und
+   damit *mehr* Starts haben müsste als der Heizbetrieb allein. Die Erklärung
+   ist vermutlich banal: `FanStarts` und `HcPumpStarts` (54 845) sind `UIN`,
+   also 16 Bit, und stehen dicht unter der Decke von 65 535. Vier Überläufe
+   brächten das Gebläse auf 312 406 und damit über die 268 104 Brennerstarts
+   aus Heizen und Warmwasser — stimmig, aber nicht beweisbar, solange niemand
+   einen Überlauf beobachtet hat.
+
+   **Praktische Folge: aus Startzählern lässt sich an diesem Gerät kein
+   Verhältnis bilden.** Das Stundenargument für die turboTEC-Zuordnung
+   (Abschnitt 1, 8174 Lüfter- gegen 7755 Brennerstunden) ist davon nicht
+   betroffen — Stundenzähler sind hier weit von der Decke entfernt.
 10. **Zustandsanzeigen gehören nicht in die Warteschlange.** `bai Flame` und
    `bai Statenumber` hinken dem Geschehen um 60–90 s bzw. Minuten hinterher
    (Abschnitt 1). Ein Kandidat wäre `READ_MAXAGE` mit kurzem Höchstalter: ein
@@ -1152,11 +1239,29 @@ ohne HA-Installation.
    *anderen* Entitäten schneller veralten, als ihre Anzeige vermuten lässt --
    und welche Beschriftung wie bei `HcStarts` auf einer Annahme statt auf einer
    Messung ruht.
-11. **Der Fehlerspeicher des Kessels hat keine Entität.** `bai Errorhistory`
-   trägt F.75, lässt sich aber nicht pollen (Master-Feld für den Index). Ein
-   Weg wäre, ihn wie `READ_MAXAGE` selbst zu holen — dann allerdings mit `-i`,
-   was der Client bislang nicht kennt. Zurückgestellt, solange
-   `bai Currenterror` die anstehende Störung zeigt.
+11. **Der Fehlerspeicher des Kessels hat keine Entität — und das hat am
+   2026-09-13 zum ersten Mal etwas gekostet.** `bai Errorhistory` lässt sich
+   nicht pollen (Master-Feld für den Index). Ein Weg wäre, ihn wie
+   `READ_MAXAGE` selbst zu holen — dann allerdings mit `-i`, was der Client
+   bislang nicht kennt.
+
+   Die Begründung für das Zurückstellen war, dass `bai Currenterror` die
+   anstehende Störung zeigt. Das stimmt und genügt trotzdem nicht: der
+   Ringpuffer trug am 2026-09-13 auf den Plätzen 0 und 1 die Fehlernummer
+   **70**, wo am 2026-09-04 noch die 75 stand (Plätze 2 bis 9 tragen sie
+   weiter). Zwischen beiden Terminen liegt die Wartung vom 2026-09-10. Es sind
+   also zwei Ereignisse aufgelaufen, `Currenterror` war zu beiden Zeitpunkten
+   leer, und in Home Assistant war davon nichts zu sehen — eine Störung, die
+   sich von selbst löst, ist für die Integration bislang nicht passiert.
+
+   Zur Zahl 70 selbst: ebusd hat für das Feld keine Werteliste, es ist ein
+   nacktes `UIN`. Die Zuordnung 70 → F.70 („ungültige Gerätevariante", DSN)
+   stammt aus der Vaillant-Dokumentation, nicht vom Bus, und ist damit
+   schwächer belegt als seinerzeit die 75. Dagegen spricht nichts am Gerät,
+   aber es bestätigt sie auch nichts: `DSN` = 5148 = `DSNStart` 5120 +
+   `DSNOffset` 28, `ChangesDSN` = 0, `VolatileLockout` = `no`. Ein Zeitstempel
+   fehlt wie schon bei der 75 (`-:-`, `-.-.-`), die beiden Einträge lassen
+   sich also nicht datieren — nur eingrenzen.
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
@@ -1184,6 +1289,11 @@ mit elf Entitäten:
 | Statuscode | `bai Statenumber` | Diagnose |
 | Betriebsstunden / Schaltspiele Heizbetrieb und Heizungspumpe | `HcHours`, `HcStarts`, `PumpHours`, `HcPumpStarts` | Diagnose |
 | Stunden bis Wartung, Zündfehler | `HoursTillService`, `DeactivationsIFC` | Diagnose |
+
+Seit dem 2026-09-13 steht der Wartungstermin daneben — allerdings nicht an
+der Therme, sondern am Regler: `ui ServicePeriod` ist sein Register, und
+gesetzt wird er im Reglermenü. Der Stundenzähler `HoursTillService` (d.84)
+bleibt davon unberührt, das sind zwei verschiedene Größen.
 
 Zusammen ergeben die ersten acht die Kette, an der ein F.75 ablesbar wird:
 Anforderung liegt an, Freigabe erteilt, Pumpe soll laufen — und der Druck
@@ -1213,6 +1323,28 @@ Repos.
 Ebenfalls am 2026-09-06: die **Geräteseite** trägt jetzt die echten Kenndaten
 der drei tatsächlichen Busteilnehmer — Regler, Bedienteil und Therme — mit
 Software-, Hardwarestand und Seriennummer aus `scan result`.
+
+Erledigt am 2026-09-13: die **Nachschau nach Wartung und Schornsteinfeger**
+(Abschnitt 1). Sie hat zwei Dinge geändert und eines bestätigt.
+
+Geändert: **offener Punkt 9 ist erledigt, und zwar gegen seine eigene
+Diagnose** — `bai HcStarts` trägt den Faktor 100, die fehlenden Stellen stehen
+in `HcUnderHundredStarts`, und die Entität summiert seither beide. Dazu ist
+**`ui ServicePeriod` als Entität dazugekommen** („Wartung", am Regler): der
+Termin 10.09.2027 ist der harte Beleg für die Wartung vom 10.09.2026.
+`tests/test_ebusd.py` kennt beide als Fixture, `tests/test_translations.py`
+prüft das zweite Register des Zählers wie jedes andere gegen den Poll-Satz.
+
+Bestätigt: **der Bestand ist gesund.** Alle 57 damals gelesenen Register
+hatten am 2026-09-13 einen Live-Wert, jeder Fühlerstatus `ok`; ohne Wert waren
+genau die drei aus `POLL_EXEMPT`, die keine Entität tragen. `poll: 52` gegen
+51 angemeldete (der Vergleich ist `>=`), Invariante 3 hält (`mc FlowTempMax`
+= 40), die fünf Solargrenzwerte stehen unverändert, und der Solarertrag ist in
+sich stimmig: Jahressumme 609 kWh am 2026-09-02, 663 kWh am 2026-09-13, also
++54 kWh in elf Tagen bei 60 kWh im laufenden September.
+
+Verschärft: **offener Punkt 11.** Zwei Einträge im Fehlerspeicher des Brenners
+sind aufgelaufen, ohne dass die Integration etwas gezeigt hätte.
 
 ## 6. Versionsverwaltung
 

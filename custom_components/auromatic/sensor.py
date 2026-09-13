@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -25,7 +26,7 @@ from homeassistant.helpers.typing import StateType
 
 from .const import HWC_MODE_OPTIONS, MODE_OPTIONS, ROOT_DEVICE
 from .coordinator import AuromaticConfigEntry
-from .ebusd import sum_fields
+from .ebusd import parse_date, sum_fields
 from .entity import AuromaticEntity, CircuitMixin
 
 # Icons stehen in icons.json und nur dort, wo keine device_class ein Symbol
@@ -50,9 +51,17 @@ class AuromaticSensorDescription(SensorEntityDescription, CircuitMixin):
 
     # Bekommt die unzerlegte Nachricht, nicht das einzelne Feld: gemeint sind
     # Auswertungen über alle Felder, etwa die Jahressumme der Monatserträge.
-    value_fn: Callable[[str], StateType] | None = None
+    value_fn: Callable[[str], StateType | date] | None = None
     # Bei mehrfeldrigen Nachrichten die einzelnen Felder als Attribute zeigen.
     expose_raw: bool = False
+    # Ein zweites Register desselben Kreises, dessen Wert hinzuaddiert wird.
+    #
+    # Vaillant führt seine Schaltspielzähler zweigeteilt: `HcStarts` trägt in
+    # der ebusd-Definition den Teiler -100, also den Faktor 100, und die
+    # beiden fehlenden Stellen stehen in einem eigenen Register. Erst die
+    # Summe ist der Stand, den das Gerät selbst führt. Gelesen wird aus
+    # `source`, geschrieben wird darauf nie -- es ist ein reiner Zähler.
+    plus_message: str | None = None
 
 
 SENSORS: tuple[AuromaticSensorDescription, ...] = (
@@ -113,7 +122,24 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     AuromaticSensorDescription(
+        # d.82 am Gerät -- und ein Zähler in zwei Registern. `HcStarts` steht
+        # in der ebusd-Definition mit dem Teiler -100, also dem Faktor 100 auf
+        # einen Rohwert von 2647; die beiden fehlenden Stellen liefert
+        # `HcUnderHundredStarts` ("Heat switch cycles under hundred").
+        #
+        # Ohne die Ergänzung steht der Zähler zwischen zwei Hundertern still:
+        # am 2026-09-06 über einen nachgewiesenen Brennerzyklus hinweg, am
+        # 2026-09-13 über eine ganze Woche samt Wartung. Das sah nach einem
+        # defekten Zähler aus und war nur die Auflösung.
+        #
+        # Der Sprung 99 -> 0 im Restregister fällt mit dem Sprung um 100 im
+        # Hauptregister zusammen, aber nicht notwendig im selben Abruf: beide
+        # stehen getrennt in der Warteschlange. Für einen Zyklus kann die
+        # Summe deshalb um bis zu 99 zurückfallen. TOTAL_INCREASING verträgt
+        # das -- Home Assistant liest erst einen Rückgang unter 90 % des
+        # letzten Wertes als Zählerneustart, und das sind hier 26 000.
         key="boiler_hc_starts", circuit="bai", message="HcStarts",
+        plus_message="HcUnderHundredStarts",
         suggested_display_precision=0,
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -144,7 +170,7 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     AuromaticSensorDescription(
-        # d.61: Zündfehler über die Lebensdauer. Steht auf 1, bei 264 700
+        # d.61: Zündfehler über die Lebensdauer. Steht auf 1, bei 264 702
         # Schaltspielen -- der Brenner selbst ist in Ordnung.
         key="ignition_failures", circuit="bai", message="DeactivationsIFC",
         suggested_display_precision=0,
@@ -380,6 +406,28 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     AuromaticSensorDescription(
+        # Der Wartungstermin, den der Regler selbst führt -- nicht zu
+        # verwechseln mit `service_hours` (d.84), dem Stundenzähler der
+        # Therme. Beides ist dieselbe Frage aus zwei Richtungen: der Zähler
+        # sagt, wie lange der Brenner noch darf, das Datum, wann jemand da
+        # war.
+        #
+        # Am 2026-09-13 stand hier 10.09.2027, genau ein Jahr nach der
+        # Wartung vom 10.09.2026 -- der Techniker hat ihn gesetzt. Damit ist
+        # am Bus ablesbar, wann die Anlage zuletzt gewartet wurde, und das
+        # war vorher nirgends sichtbar.
+        #
+        # `SensorDeviceClass.DATE` verlangt ein echtes Datum, deshalb
+        # `parse_date`: ein nicht gesetzter Termin kommt als `-.-.-` und
+        # ergibt dann keinen Wert statt einer Zeichenkette. Ein Icon steht
+        # bewusst nicht in icons.json -- die device_class liefert eines.
+        key="service_date", circuit="ui", device_circuit=ROOT_DEVICE,
+        message="ServicePeriod",
+        device_class=SensorDeviceClass.DATE,
+        value_fn=parse_date,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
         # Den Solarertrag führt das Bedienteil, gesucht wird er beim Solar.
         key="yield_year", circuit="ui", device_circuit="sc",
         message="YieldThisYear",
@@ -437,7 +485,7 @@ class AuromaticSensor(AuromaticEntity, SensorEntity):
     entity_description: AuromaticSensorDescription
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> StateType | date:
         if self.entity_description.value_fn is not None:
             # Die ganze Nachricht, nicht raw_value: das wäre bei der
             # Ertragsstatistik nur das erste Feld und damit der Januar.
@@ -449,9 +497,21 @@ class AuromaticSensor(AuromaticEntity, SensorEntity):
         if self.entity_description.device_class is SensorDeviceClass.ENUM:
             return raw
         try:
-            return float(raw)
+            wert = float(raw)
         except ValueError:
             return raw
+        if (rest := self.entity_description.plus_message) is None:
+            return wert
+        # Fehlt das zweite Register, wird nichts gemeldet statt eines Wertes,
+        # der bis zu 99 zu niedrig wäre: ein zu kleiner Zählerstand sähe wie
+        # ein Rücksprung aus, eine Lücke von einem Zyklus nicht.
+        roh = self.coordinator.value(self.entity_description.source, rest)
+        if roh is None:
+            return None
+        try:
+            return wert + float(roh)
+        except ValueError:
+            return None
 
     @property
     def extra_state_attributes(self) -> dict[str, str] | None:

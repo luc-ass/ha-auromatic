@@ -155,6 +155,9 @@
       "boiler_hours": {
         "name": "Heat generator command hours"
       },
+      "service_date": {
+        "name": "Maintenance date"
+      },
       "yield_year": {
         "name": "Solar yield this year"
       },

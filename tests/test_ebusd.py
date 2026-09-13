@@ -13,6 +13,7 @@ nicht vorhandener Kaskadenkessel.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import importlib.util
 import pathlib
 import sys
@@ -66,6 +67,8 @@ RESPONSES: dict[str, list[str]] = {
         "ui SystemModeStream1 = heat",
         "ui YieldThisYear = 26;38;157;0;0;0;138;244;0;0;0;0",
         "ui BoilerHoursB1 = 60836",
+        # Der Wartungstermin, den der Regler fuehrt -- ein HDA:3-Datum.
+        "ui ServicePeriod = 10.09.2027",
     ],
     "cc": ["cc StatPowerOn = 204"],
     # Der Waermeerzeuger (0x08), Werte vom 2026-09-04 -- dem Tag, an dem der
@@ -81,7 +84,12 @@ RESPONSES: dict[str, list[str]] = {
         "bai Flame = off",
         "bai Currenterror = -;-;-;-;-",
         "bai Statenumber = 31",
+        # Ein Zaehler in zwei Registern: `HcStarts` traegt in der
+        # ebusd-Definition den Teiler -100, kommt also immer als Vielfaches
+        # von 100 (Rohwert 2647), und die beiden fehlenden Stellen stehen
+        # daneben. Erst zusammen ergeben sie 264702, den Stand des Geraets.
         "bai HcStarts = 264700",
+        "bai HcUnderHundredStarts = 2",
         # Kein Speicherfuehler am Kessel (externer Solarspeicher).
         "bai StorageTemp = -14.94;cutoff",
         # Kein WW-Vorlauffuehler: ein VC, kein Kombigeraet. Der Fuehlerstatus
@@ -247,6 +255,19 @@ async def run() -> None:
     check("Jahressumme", ebusd.sum_fields(ui["YieldThisYear"]) == 603,
           "603 kWh aus zwoelf Monaten, nicht 26 (Januar)")
     check("Summe ohne Zahlen", ebusd.sum_fields("-;-") is None, "None statt Ausnahme")
+    check("Wartungstermin gelesen", ui.get("ServicePeriod") == "10.09.2027",
+          "Datum aus dem Reglermenue")
+
+    bai = await client.find("bai")
+    # `HcStarts` traegt den Faktor 100 und kommt deshalb nie mit den letzten
+    # beiden Stellen. Wer nur dieses Register liest, sieht einen Zaehler, der
+    # ueber Wochen stillsteht -- am 2026-09-06 ueber einen nachgewiesenen
+    # Brennerzyklus, am 2026-09-13 ueber eine Woche samt Wartung.
+    check("Hunderterzaehler ohne Rest", pf(bai["HcStarts"]) == "264700",
+          "immer ein Vielfaches von 100")
+    check("Schaltspiele erst zusammen vollstaendig",
+          int(pf(bai["HcStarts"])) + int(pf(bai["HcUnderHundredStarts"])) == 264702,
+          "264700 + 2 -- der Stand, den das Geraet fuehrt")
 
     sc = await client.find("sc")
     check("Fuehler ohne Anschluss", pf(sc["Coll2Sensor"], status_index=1) is None,
@@ -387,6 +408,19 @@ async def run() -> None:
           "Seriennummer der Elektronik")
     check("Kein Text aus Muell", ebusd.hex_text("00 01 02") is None and ebusd.hex_text("") is None,
           "nicht druckbares gilt als kein Wert")
+
+    # `ui ServicePeriod` ist ein HDA:3-Datum. Home Assistant verlangt fuer
+    # SensorDeviceClass.DATE ein echtes date-Objekt, eine Zeichenkette weist
+    # es zurueck. Der Wert stammt von der Anlage: am 2026-09-13 stand dort
+    # 10.09.2027, genau ein Jahr nach der Wartung.
+    check("Wartungstermin als Datum",
+          ebusd.parse_date("10.09.2027") == datetime.date(2027, 9, 10),
+          "HDA:3 wird zum date-Objekt")
+    # Ein nicht gesetzter Termin kommt als '-.-.-' -- daraus darf kein Wert
+    # werden, sonst stuende die Entitaet auf einer Zeichenkette statt leer.
+    check("Kein Datum aus Platzhaltern",
+          all(ebusd.parse_date(v) is None for v in ("-.-.-", "", None, "31.02.2027")),
+          "Platzhalter und unmoegliche Daten ergeben None")
 
     # Zwei Register stehen nicht in der Warteschlange, sondern werden vom
     # Koordinator selbst geholt -- mit Höchstalter statt mit '-f'. Die

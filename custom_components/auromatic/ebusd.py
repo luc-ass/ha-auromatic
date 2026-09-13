@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import date, datetime
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -331,6 +332,22 @@ def carry_forward(
             still[(circuit, message)] = since
             current.setdefault(circuit, {})[message] = value
     return still, expired
+
+
+def parse_date(raw: str | None) -> date | None:
+    """Ein HDA-Datumsfeld von ebusd als echtes Datum lesen.
+
+    `ui ServicePeriod` kommt als `10.09.2027`, ein nicht gesetzter Termin als
+    `-.-.-`. Home Assistant verlangt für `SensorDeviceClass.DATE` ein
+    `datetime.date` und weist eine Zeichenkette zurück -- ohne diese
+    Umwandlung bliebe die Entität leer.
+    """
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw.strip(), "%d.%m.%Y").date()
+    except ValueError:
+        return None
 
 
 def sum_fields(raw: str | None) -> int | None:

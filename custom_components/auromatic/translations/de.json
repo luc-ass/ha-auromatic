@@ -155,6 +155,9 @@
       "boiler_hours": {
         "name": "Ansteuerstunden Wärmeerzeuger"
       },
+      "service_date": {
+        "name": "Wartung"
+      },
       "yield_year": {
         "name": "Solarertrag laufendes Jahr"
       },

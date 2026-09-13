@@ -20,8 +20,8 @@ Von innen heißt ebusd `2ad9b828-ebusd:8888`.
 ## Tests
 
 ```
-python3 tests/test_ebusd.py         # 55 Prüfungen, braucht kein Home Assistant
-python3 tests/test_translations.py  # 489 Prüfungen, braucht kein Home Assistant
+python3 tests/test_ebusd.py         # 69 Prüfungen, braucht kein Home Assistant
+python3 tests/test_translations.py  # 497 Prüfungen, braucht kein Home Assistant
 ```
 
 `test_ebusd.py` spielt wortgetreue `ebusctl`-Antworten der echten Anlage gegen

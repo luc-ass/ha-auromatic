@@ -32,9 +32,9 @@ Daraus die drei Stufen unten:
 * `POLL_SETTING` (9) -- Sollwerte, Konfiguration und Zählerstände. Sie ändern
   sich selten, und niemand wartet auf sie.
 
-Mit 19 Registern auf 1, fünf auf 3 und 27 auf 9 ergeben sich 23,67 Anteile:
+Mit 19 Registern auf 1, fünf auf 3 und 29 auf 9 ergeben sich 23,89 Anteile:
 ein Messwert kommt rund alle 2,4 Minuten an die Reihe, ein Bedienelement alle
-7,1, ein Sollwert alle 21 -- bei unveränderter Buslast gegenüber den 156
+7,2, ein Sollwert alle 21,5 -- bei unveränderter Buslast gegenüber den 156
 Nachrichten von vorher.
 
 Nachgemessen an einem vollen Tag (2026-09-02, 16 h Laufzeit, damals noch
@@ -52,6 +52,11 @@ Brenners bleibt genau die Störung unsichtbar, die diese Anlage am
 kostet dabei vermutlich gar nichts: `bai Status01` fragt das Bedienteil
 ohnehin alle 17 Sekunden ab, und was frisch im Zwischenspeicher liegt,
 überspringt der Poll -- derselbe Effekt wie bei `hc SumFlowSensor`.
+
+Am 2026-09-13 kamen zwei Register auf Stufe 9 dazu (`bai HcUnderHundredStarts`
+und `ui ServicePeriod`), von 23,67 auf 23,89 Anteile: ein Messwert kommt
+statt alle 142 nun alle 143 Sekunden dran. Eine Sekunde für einen Zähler, der
+sich sonst nur alle hundert Brennerstarts rührt, und für den Wartungstermin.
 
 **Der Poll-Satz muss vollständig sein.** Steht ein Register hier nicht drin,
 holt ebusd es nicht mehr vom Bus, und `find` liefert bis in alle Ewigkeit den
@@ -208,7 +213,12 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         # `DeactivationsIFC` (ein einziger Zündfehler im ganzen Gerätleben)
         # ist der Gegenbeweis dafür, dass es am Brenner selbst liegt.
         "HcHours": POLL_SETTING,
+        # Zwei Register, ein Zähler: `HcStarts` trägt den Faktor 100, die
+        # beiden fehlenden Stellen stehen in `HcUnderHundredStarts`. Der Rest
+        # gehört auf dieselbe Stufe wie der Hunderter -- kämen sie
+        # verschieden oft, stünde die Summe öfter schief als nötig.
         "HcStarts": POLL_SETTING,
+        "HcUnderHundredStarts": POLL_SETTING,
         "PumpHours": POLL_SETTING,
         "HcPumpStarts": POLL_SETTING,
         "HoursTillService": POLL_SETTING,
@@ -315,6 +325,12 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         "RoomTemp": POLL_SETTING,
         "SystemModeStream1": POLL_MEASURED,
         "BoilerHoursB1": POLL_SETTING,
+        # Der Wartungstermin des Reglers. Er ändert sich einmal im Jahr, und
+        # trotzdem steht er in der Warteschlange statt in READ_MAXAGE: ein
+        # Platz auf Stufe 9 kostet keine einzige zusätzliche Anfrage, ein
+        # `read -m` dagegen schon. Genau die Rechnung, die oben für die
+        # Konstanten steht.
+        "ServicePeriod": POLL_SETTING,
         # Die Ertragsstatistik steht in READ_MAXAGE, nicht hier.
     },
 }

@@ -139,9 +139,18 @@ def used_messages() -> set[tuple[str, str]]:
                 # Gelesen wird aus `source_circuit`, wo es gesetzt ist: die
                 # Entität hängt dann an einem anderen Gerät als das Register.
                 circuit = fields.get("source_circuit") or fields.get("circuit")
-                message = fields.get("message")
-                if isinstance(circuit, ast.Constant) and isinstance(message, ast.Constant):
-                    found.add((circuit.value, message.value))
+                if not isinstance(circuit, ast.Constant):
+                    continue
+                # `plus_message` ist das zweite Register eines zweigeteilten
+                # Zaehlers: `bai HcStarts` fuehrt nur die Hunderter, die
+                # beiden letzten Stellen stehen daneben. Es wird genauso
+                # gelesen wie `message` und muss deshalb genauso angemeldet
+                # sein -- sonst fiele es still aus der Warteschlange und die
+                # Summe haenge fuer immer am letzten bekannten Rest.
+                for name in ("message", "plus_message"):
+                    wert = fields.get(name)
+                    if isinstance(wert, ast.Constant):
+                        found.add((circuit.value, wert.value))
             elif getattr(node.func, "attr", "") == "value" and len(node.args) >= 2:
                 circuit, message = node.args[0], node.args[1]
                 if isinstance(circuit, ast.Constant) and isinstance(message, ast.Constant):
