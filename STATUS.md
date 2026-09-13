@@ -227,27 +227,51 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   dasselbe mit Warmwasserbereitung, `VK` der bodenstehende Kessel. Dieses
   Gerät ist ein VC: `bai HwcTemp` meldet `circuit` (kein WW-Vorlauffühler),
   `bai StorageTemp` meldet `cutoff` (kein geräteseitiger Speicher), und der
-  Benutzer hat es am 2026-09-05 als wandhängend ohne Speicher bestätigt; die
-  Kennung `BAI00` gehört zur atmoTEC/turboTEC-Reihe. Das Gerät heißt in Home
-  Assistant deshalb seit 0.3.2 **„Therme"**.
+  Benutzer hat es am 2026-09-05 als wandhängend ohne Speicher bestätigt. Das
+  Gerät heißt in Home Assistant deshalb seit 0.3.2 **„Therme"**.
 
-  *Welche der beiden Reihen, sagt das Gebläse.* Am 2026-09-06 am Bus gelesen:
-  `bai FanHours` = 8174, `bai FanStarts` = 50 255 (der Startzähler nur
-  nachrichtlich — er ist `UIN` und steht dicht unter der 16-Bit-Decke, siehe
-  offener Punkt 9; das Argument hier trägt allein der Stundenzähler). Dem stehen 7755
-  Brennerstunden gegenüber (7098 Heizen + 657 Warmwasser) — das Verhältnis ist
-  das eines Gebläses, das bei jedem Zyklus mit Vor- und Nachspülung mitläuft.
-  Ein **atmoTEC** ist im Naturzug ausgelegt und hat kein Gebläse, sondern eine
-  Strömungssicherung; das Gerät gehört also zur **turboTEC**-Seite. Dazu passen
-  `bai AircontrolOk`, die APS-Zähler (Luftdruckwächter) und `bai Fluegasvalve`.
+  *Es ist eine **ecoTEC plus**, also ein Brennwertgerät.* Der Benutzer hat die
+  Typenbezeichnung am 2026-09-13 am Gerät abgelesen. Das korrigiert einen
+  Fehlschluss, der vom 2026-09-06 bis dahin hier stand — er ist unten
+  aufgehoben, weil der Denkfehler wiederkommen kann.
 
-  Der Benutzer hat am Gehäuse einen Ansaugstutzen gesehen und daraus auf ein
-  raumluftabhängiges Gerät geschlossen — der Stutzen ist aber gerade das
-  Merkmal des gebläseunterstützten. Beides schließt sich nicht aus: ein
-  turboTEC darf einrohrig betrieben werden (B23), Abgas über den Schornstein
-  und Verbrennungsluft aus dem Aufstellraum. Dann verhält es sich im Betrieb
-  raumluftabhängig, obwohl es ein turboTEC ist. Verbindlich entscheidet das
-  Typenschild; für die Integration ändert sich dadurch nichts.
+  Der Bus stützt die Angabe, und zwar an einer Stelle, die vorher niemand
+  angesehen hat: **das Gebläse hat ein Drehzahlband.**
+  `bai FanMinSpeedOperation` = 1400 und `bai FanMaxSpeedOperation` = 5650
+  Umdrehungen, dazu `bai ModulationDesired` = 52,1 % und `bai FanPWMSum`
+  = 54 653. Ein atmoTEC hat gar kein Gebläse (Naturzug, Strömungssicherung),
+  ein turboTEC ein einstufiges — nur das Brennwertgerät regelt Gebläse und
+  Gasventil gemeinsam über die Drehzahl. Dazu `bai IonisationVoltageLevel`
+  = 68,6 und `bai PartloadHcKW` = 12 gegen `PartloadHwcKW` = 23, was zu einem
+  Gerät der 24-kW-Klasse passt.
+
+  **Der Fehlschluss, aufgehoben zur Warnung.** Hier stand bis zum 2026-09-13,
+  das Gerät gehöre zur turboTEC-Reihe, hergeleitet aus 8174 Gebläsestunden
+  gegen 7755 Brennerstunden (7098 Heizen + 657 Warmwasser): ein Gebläse, das
+  bei jedem Zyklus mitspült, also kein atmoTEC im Naturzug, also turboTEC.
+  Der erste Schluss stimmt, der zweite ist eine falsche Alternative — eine
+  ecoTEC hat ebenfalls ein Gebläse, und das Stundenverhältnis unterscheidet
+  die beiden nicht. Die Frage war nie „gibt es ein Gebläse", sondern
+  „moduliert es". Dieselbe Sorte Fehler trugen die Belege daneben: `bai
+  AircontrolOk`, die APS-Zähler und `bai Fluegasvalve` wurden als Bestätigung
+  gelesen, obwohl sie bloß in der CSV stehen — die Definition gilt der ganzen
+  `BAI00`-Familie und sagt nichts darüber, was in diesem Gehäuse verbaut ist.
+  Ebenso wenig taugt die Kennung selbst: `BAI00` melden auch ecoTEC-Geräte.
+
+  Auch der Ansaugstutzen ist damit erklärt, und anders als gedacht: er gehört
+  zur raumluftunabhängigen Zuluft des Brennwertgeräts. Die frühere Herleitung
+  über den einrohrigen B23-Betrieb eines turboTEC war eine Erklärung für ein
+  Gerät, das hier gar nicht hängt.
+
+  *Für die Integration ändert sich nichts* — `model` trägt die Buskennung
+  (`Vaillant BAI00 (bai @ 0x08)`), nicht die Typenreihe, und „Therme" bleibt
+  richtig: eine ecoTEC plus VC ist wandhängend und ohne Warmwasserbereitung.
+  Für das Verständnis der Anlage ändert sich sehr wohl etwas: bei einem
+  Brennwertgerät ist ein **niedriger Rücklauf erwünscht**, weil erst er die
+  Kondensation trägt. Der Sammelrücklauf (`sc SumBackflowSensor`) ist damit
+  kein reiner Diagnosewert mehr, sondern eine Effizienzgröße — und die 40 °C
+  Vorlaufgrenze am Mischerkreis (Invariante 3) arbeiten dem zu, statt ihm im
+  Weg zu stehen.
 
   *Die Heizleistung ist begrenzt.* `bai PartloadHcKW` = 12 gegen
   `bai PartloadHwcKW` = 23: die Teillast für den Heizbetrieb steht auf 12 kW.
@@ -1228,9 +1252,10 @@ ohne HA-Installation.
    einen Überlauf beobachtet hat.
 
    **Praktische Folge: aus Startzählern lässt sich an diesem Gerät kein
-   Verhältnis bilden.** Das Stundenargument für die turboTEC-Zuordnung
-   (Abschnitt 1, 8174 Lüfter- gegen 7755 Brennerstunden) ist davon nicht
-   betroffen — Stundenzähler sind hier weit von der Decke entfernt.
+   Verhältnis bilden.** Die Stundenzähler sind davon nicht betroffen, die
+   stehen weit von der Decke entfernt — nur trägt auch ihr Verhältnis weniger,
+   als es einmal sollte: die Zuordnung zur Gerätereihe hing daran und war
+   falsch (Abschnitt 1).
 10. **Zustandsanzeigen gehören nicht in die Warteschlange.** `bai Flame` und
    `bai Statenumber` hinken dem Geschehen um 60–90 s bzw. Minuten hinterher
    (Abschnitt 1). Ein Kandidat wäre `READ_MAXAGE` mit kurzem Höchstalter: ein
