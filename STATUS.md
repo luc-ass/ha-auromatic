@@ -1427,8 +1427,28 @@ nicht konstante Kesselüberhöhung, die live rechnende Heizkurve, den
 Warteschlangentakt als Grenze für Zustandsanzeigen und einen Ausreißer mit
 gültigem Fühlerstatus. Zwei neue offene Punkte sind daraus entstanden (9
 und 10), einer ist geschrumpft (4: es fehlt nur noch der Nachweis unter Last).
-Gemessen wurde mit `tools/thermal_log.py`, die Rohdaten liegen außerhalb des
-Repos.
+Gemessen wurde mit `tools/thermal_log.py`. **Die Rohdaten dazu sind
+verschollen** — hier stand bis zum 2026-09-14 „liegen außerhalb des Repos",
+was greifbarer klang, als sie es sind: die CSV ist auf dem Arbeitsrechner
+nicht auffindbar. Vom 2026-09-06 bleiben damit nur die ausgewerteten Zahlen in
+diesem Dokument.
+
+Ersatz gibt es, und er ist die verlässlichere Quelle: **der Recorder von Home
+Assistant** hat den Zeitraum ebenfalls, seit die Therme-Entitäten am
+2026-09-04 entstanden sind. Er ist gröber als die 120 Zeilen à 30 s des
+Rekorders, weil Home Assistant nur Änderungen schreibt und `bai Status01` in
+0,5-K-Schritten auflöst — für das Zeitfenster des Heizversuchs sind es 91
+Werte Sammelvorlauf, 51 Sammelrücklauf und 18 Kesselrücklauf. Für alles, was
+in Abschnitt 1 aus dem Lauf abgeleitet ist, reicht das.
+
+**Er hält allerdings nicht ewig.** Die Rohhistorie reicht am 2026-09-14 bis
+zum 2026-09-04 zurück und nicht weiter — der Recorder räumt nach zehn Tagen
+auf. Der Heizversuch fällt also um den 2026-09-16 heraus. Was länger bleibt,
+sind die Langzeitstatistiken (Stundenmittel, -minima und -maxima); die
+Sekundenauflösung eines Brennerzyklus ist darin nicht mehr enthalten. Wer
+einen Lauf über Wochen hinaus auswerten will, sichert ihn vorher — genau
+dafür gibt es `tools/thermal_log.py`, und diesmal an einen Ort, der
+wiedergefunden wird.
 
 Ebenfalls am 2026-09-06: die **Geräteseite** trägt jetzt die echten Kenndaten
 der drei tatsächlichen Busteilnehmer — Regler, Bedienteil und Therme — mit
