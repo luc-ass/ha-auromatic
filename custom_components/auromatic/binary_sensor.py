@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ROOT_DEVICE
 from .coordinator import AuromaticConfigEntry
-from .entity import AuromaticEntity, CircuitMixin
+from .entity import AuromaticEntity, CircuitMixin, async_add_available
 
 
 def _is_on(raw: str) -> bool:
@@ -153,10 +153,14 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(
-        AuromaticBinarySensor(coordinator, description, entry.entry_id)
-        for description in BINARY_SENSORS
-        if coordinator.message(description.source, description.message) is not None
+    async_add_available(
+        entry, async_add_entities, BINARY_SENSORS,
+        lambda description: AuromaticBinarySensor(coordinator, description, entry.entry_id),
+        # Die ganze Nachricht, nicht ein Feld daraus: `is_on_fn` bekommt sie
+        # unzerlegt, weil manche Zustände erst aus mehreren Feldern entstehen.
+        ready=lambda coord, description: coord.message(
+            description.source, description.message
+        ) is not None,
     )
 
 

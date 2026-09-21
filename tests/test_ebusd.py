@@ -142,6 +142,39 @@ SCAN_RESULT = [
 ]
 
 
+# Wortgetreu aus 'info' der echten Anlage (2026-09-21). Drei Zeilen tragen die
+# Fallstricke: der Kessel bindet über seine CSV noch eine '.inc' ein, die
+# keinen Kreisnamen trägt; 0x44 ist gescannt, hat aber gar keine CSV; und die
+# beiden letzten Adressen (0x50 und 0xec) sind die, die beim Scannen zuletzt
+# an die Reihe kommen -- am 2026-09-19 fehlten genau ihre 24 Entitäten.
+INFO_ADDRESSES = [
+    'address 03: master #11',
+    'address 08: slave #11, scanned "MF=Vaillant;ID=BAI00;SW=0414;HW=7401", loaded'
+    ' "vaillant/bai.0010006101.inc" ([Scan_id_product=\'\']), "vaillant/08.bai.csv"',
+    'address 15: slave #2, scanned "MF=Vaillant;ID=UI   ;SW=0508;HW=6201", loaded'
+    ' "vaillant/15.ui.csv"',
+    'address 23: slave, scanned "MF=Vaillant;ID=SOLSY;SW=0500;HW=6301", loaded'
+    ' "vaillant/23.solsy.cc.csv"',
+    'address 25: slave, scanned "MF=Vaillant;ID=SOLSY;SW=0500;HW=6301", loaded'
+    ' "vaillant/25.solsy.hwc.csv"',
+    'address 26: slave, scanned "MF=Vaillant;ID=SOLSY;SW=0500;HW=6301", loaded'
+    ' "vaillant/26.solsy.hc.csv"',
+    'address 31: master #8, ebusd',
+    'address 44: slave, scanned "MF=Vaillant;ID=SOLSY;SW=0500;HW=6301"',
+    'address 50: slave, scanned "MF=Vaillant;ID=SOLSY;SW=0500;HW=6301", loaded'
+    ' "vaillant/50.solsy.mc.csv"',
+    'address ec: slave, scanned "MF=Vaillant;ID=SOLSY;SW=0500;HW=6301", loaded'
+    ' "vaillant/ec.solsy.sc.csv"',
+]
+
+# Während ebusd scannt, sind erst die niedrigen Adressen geladen. So sah es am
+# 2026-09-19 um 20:25 aus, als Home Assistant startete.
+INFO_ADDRESSES_SCANNING = [
+    zeile for zeile in INFO_ADDRESSES
+    if not zeile.startswith(("address 44", "address 50", "address ec"))
+]
+
+
 def check(label: str, condition: bool, detail: str = "") -> None:
     global checks
     checks += 1
@@ -163,7 +196,9 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
         elif cmd == "info":
             out = ["version: ebusd 26.1.26.1", "signal: acquired",
                    f"scan: {scan_state[0]}", "masters: 4",
-                   f"poll: {len(poll_list)}", "update: 10"]
+                   f"poll: {len(poll_list)}", "update: 10",
+                   *(INFO_ADDRESSES if scan_state[0] == "finished"
+                     else INFO_ADDRESSES_SCANNING)]
         elif cmd.startswith("find -c "):
             # Einen Kreis, dessen CSV nicht geladen ist, kennt ebusd gar nicht
             # -- die Antwort ist dieselbe Fehlerzeile wie bei einem unbekannten
@@ -367,7 +402,22 @@ async def run() -> None:
     check("Scan fertig erkannt", (await client.status())[0] is True, "scan: finished")
     scan_state[0] = "running"
     check("Scan laeuft erkannt", (await client.status())[0] is False, "scan: running")
+
+    # Und genau dann kennt ebusd die hohen Adressen noch nicht. Das ist der
+    # Unterschied zwischen "der Kreis ist weg" und "der Kreis war noch nicht
+    # dran" -- ohne ihn entstehen Entitäten für eine halbe Anlage.
+    waehrend = await client.loaded_circuits()
+    check("Kreise während des Scans", waehrend == {"bai", "ui", "cc", "hwc", "hc"},
+          f"{sorted(waehrend)} -- mc und sc fehlen noch")
     scan_state[0] = "finished"
+
+    geladen = await client.loaded_circuits()
+    check("Geladene Kreise erkannt",
+          geladen == {"bai", "ui", "cc", "hwc", "hc", "mc", "sc"}, f"{sorted(geladen)}")
+    check("'.inc' zählt nicht als Kreis", "bai" in geladen and "0010006101" not in geladen,
+          "die eingebundene Datei trägt keinen Kreisnamen")
+    check("Adresse ohne CSV bleibt draußen", len(geladen) == 7,
+          "0x44 ist gescannt, aber ebusd hat keine Konfiguration dafür")
 
     # Ein Register, das diese Anlage nicht kennt, darf die uebrigen vierzig
     # nicht mitreissen -- der Koordinator faengt den Fehler je Register ab.

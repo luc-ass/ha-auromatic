@@ -146,6 +146,39 @@ class EbusdClient:
                 polled = int(value.strip() or 0)
         return scan_done, polled
 
+    async def loaded_circuits(self) -> set[str]:
+        """Die Kreise, für die ebusd eine CSV geladen hat.
+
+        ebusd lädt die Konfiguration je Busadresse erst beim Scannen und leitet
+        den Kreisnamen aus dem Dateinamen ab (26.solsy.hc.csv -> "hc"). Ein
+        Kreis, der hier fehlt, ist für ebusd nicht vorhanden: 'find' und jede
+        Poll-Anmeldung darauf enden mit 'element not found'.
+
+        Gebraucht wird die Liste, um zwei Fälle zu unterscheiden, die sonst
+        gleich aussehen -- beide liefern keinen Wert, nur einer ist ein Fehler:
+        ein Teilnehmer, den ebusd gar nicht kennt (der stromlose Kessel, und
+        genauso jeder Kreis während eines laufenden Scans), und ein Teilnehmer,
+        dessen CSV geladen ist, der aber trotzdem nichts liefert. Nur der
+        zweite gehört ins Protokoll.
+
+        Die Zeilen sehen so aus (ebusd 26.1, 'info'):
+
+            address 50: slave, scanned "MF=Vaillant;...", loaded "vaillant/50.solsy.mc.csv"
+            address 08: slave #11, scanned "...", loaded "vaillant/bai.0010006101.inc" ([Scan_id_product='']), "vaillant/08.bai.csv"
+
+        Eingebundene '.inc'-Dateien bleiben dabei draußen: sie tragen keinen
+        Kreisnamen, sondern gehören zu der CSV, die sie einbindet.
+        """
+        circuits: set[str] = set()
+        for line in await self.command("info"):
+            if not line.startswith("address ") or ", loaded " not in line:
+                continue
+            for part in line.partition(", loaded ")[2].split('"'):
+                name = part.rsplit("/", 1)[-1]
+                if name.endswith(".csv"):
+                    circuits.add(name.removesuffix(".csv").rsplit(".", 1)[-1])
+        return circuits
+
     async def scan_result(self) -> dict[str, dict[str, str]]:
         """Was ebusd beim Scannen über die Teilnehmer erfahren hat.
 

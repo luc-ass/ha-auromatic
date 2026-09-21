@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import HWC_MODE_OPTIONS
 from .coordinator import AuromaticConfigEntry
 from .ebusd import EbusdError
-from .entity import AuromaticEntity, CircuitDescription
+from .entity import AuromaticEntity, CircuitDescription, async_add_available
 
 # Schreibend: der eBUS ist langsam, Befehle laufen nacheinander.
 PARALLEL_UPDATES = 1
@@ -33,9 +33,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    if coordinator.value("hwc", "Storage1Sensor2", status_index=1) is None:
-        return
-    async_add_entities([AuromaticWaterHeater(coordinator, DESCRIPTION, entry.entry_id)])
+    async_add_available(
+        entry, async_add_entities, (DESCRIPTION,),
+        lambda description: AuromaticWaterHeater(coordinator, description, entry.entry_id),
+    )
 
 
 class AuromaticWaterHeater(AuromaticEntity, WaterHeaterEntity):

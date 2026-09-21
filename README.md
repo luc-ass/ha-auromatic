@@ -100,6 +100,12 @@ Drei Fallstricke, die jeder naive Weg von ebusd nach Home Assistant trifft:
    Kollektortemperatur im Verlauf.
 3. **Kaskadenregister.** Die Gerätedefinition kennt acht Kessel; bei einer
    Anlage mit einem liefern `B2`–`B8` Dekodierfehler und werden gefiltert.
+4. **Teilnehmer, die später dazukommen.** ebusd lädt die Konfiguration je
+   Busadresse erst beim Scannen, und die höchsten Adressen zuletzt — wer in
+   diesem Fenster startet, sieht eine halbe Anlage. Entitäten entstehen
+   deshalb nicht nur beim Einrichten, sondern auch danach, sobald ihr Register
+   zum ersten Mal antwortet. Dasselbe gilt für ein Gerät, das wieder Strom
+   bekommt: es braucht kein Neuladen der Integration.
 
 ## Schreibzugriffe
 
@@ -148,8 +154,8 @@ aber nie bei ebusd angemeldet wird.
 ## Neue Version veröffentlichen
 
 HACS bietet den Anwendern die GitHub-*Releases* an. Ein Release braucht deshalb
-zweierlei, und zwar gleichlautend: das Tag (`v0.3.3`) und das Feld `version` in
-`custom_components/auromatic/manifest.json` (`0.3.3`). Weichen sie voneinander
+zweierlei, und zwar gleichlautend: das Tag (`v0.3.4b1`) und das Feld `version` in
+`custom_components/auromatic/manifest.json` (`0.3.4b1`). Weichen sie voneinander
 ab, lädt HACS zwar die Dateien, meldet aber weiter die alte Version als
 installiert und bietet dasselbe Update immer wieder an.
 

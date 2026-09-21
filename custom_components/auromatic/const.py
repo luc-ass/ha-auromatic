@@ -35,7 +35,8 @@ CIRCUITS: Final[dict[str, dict[str, str]]] = {
     # stromlos (Zustand vom Hausverkauf) und deshalb gar nicht vorhanden;
     # seither antwortet er, und der Kreis existiert. Bleibt er wieder aus,
     # fehlen seine Register schlicht -- der Koordinator verträgt einen stummen
-    # Kreis, und die Entitäten entstehen beim Setup nur, wenn Werte vorliegen.
+    # Kreis, und Entitäten entstehen nur, wo Werte vorliegen. Bekommt er später
+    # wieder Strom, legt `async_add_available` sie ohne Neuladen nach.
     "bai": {
         "address": "0x08",
         "name": "Kessel",

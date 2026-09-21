@@ -1,15 +1,18 @@
-"""Gemeinsame Basis aller Entitäten: Gerätezuordnung und Verfügbarkeit."""
+"""Gemeinsame Basis aller Entitäten: Gerätezuordnung, Verfügbarkeit, Anlegen."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CIRCUITS, DOMAIN, ROOT_DEVICE
-from .coordinator import AuromaticCoordinator
+from .coordinator import AuromaticConfigEntry, AuromaticCoordinator
 
 
 def _identity(coordinator: AuromaticCoordinator, circuit: str) -> dict[str, str]:
@@ -163,3 +166,74 @@ class AuromaticEntity(CoordinatorEntity[AuromaticCoordinator]):
     @property
     def available(self) -> bool:
         return super().available and self.raw_message is not None
+
+
+def has_value(coordinator: AuromaticCoordinator, description: CircuitMixin) -> bool:
+    """Antwortet das Register dieser Beschreibung mit einem brauchbaren Wert?
+
+    Der Regelfall für async_add_available: ein Feld, das sich zerlegen lässt,
+    und -- wo `status_field` gesetzt ist -- ein Fühler, der auch angeschlossen
+    ist. Zwei Plattformen brauchen etwas anderes und bringen es selbst mit.
+    """
+    return coordinator.value(
+        description.source, description.message,
+        description.field, description.status_field,
+    ) is not None
+
+
+@callback
+def async_add_available[D: CircuitMixin](
+    entry: AuromaticConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+    descriptions: Iterable[D],
+    build: Callable[[D], AuromaticEntity],
+    ready: Callable[[AuromaticCoordinator, D], bool] = has_value,
+) -> None:
+    """Entitäten anlegen -- beim Setup und später, sobald ihr Register antwortet.
+
+    Angelegt wird nur, was tatsächlich einen Wert liefert: ein nicht verbauter
+    Fühler meldet `cutoff` und soll keine Entität bekommen. Die Prüfung nur
+    einmal beim Setup zu machen, war der Fehler -- dann hängt für immer ab,
+    was ebusd in genau dieser Sekunde wusste.
+
+    Am 2026-09-19 um 20:25 hat das 24 Entitäten gekostet: Home Assistant
+    startete, während ebusd noch scannte, und die beiden zuletzt geladenen
+    Adressen 0x50 (`mc`) und 0xec (`sc`) waren noch nicht an der Reihe. Ihre
+    Register antworteten Minuten später wieder -- die Entitäten dazu gab es
+    bis zum Neuladen der Integration 34 Stunden später nicht. Ohne Fehler im
+    Protokoll: es fehlte ja nichts, es war nie da. Derselbe Fall trifft jeden
+    Teilnehmer, der nach dem Setup dazukommt; der Kessel war bis zum
+    2026-09-04 stromlos und brauchte genau deshalb ein Neuladen.
+
+    Das Muster ist das der HA-Qualitätsstufe Gold (`dynamic-devices`): beim
+    Setup anlegen, was da ist, und am Koordinator lauschen für den Rest. Das
+    Abmelden hängt an `entry`, weil sich fünf Plattformen einen Koordinator
+    teilen -- ohne das überlebt der Rückruf das Entladen.
+
+    Der Rückruf wird auch dann angemeldet, wenn die Plattform noch gar keine
+    Entität bekommt, und das ist der Kern der Sache: ein DataUpdateCoordinator
+    ohne Zuhörer stellt seinen Abruf ein. Ohne diese Anmeldung liefe für einen
+    beim Setup vollständig abwesenden Kreis nie wieder ein Abruf -- und damit
+    entstünde seine Entität auch nie.
+    """
+    coordinator = entry.runtime_data
+    candidates = tuple(descriptions)
+    # Angelegt wird je Kreis und Schlüssel genau einmal -- dasselbe Paar, das
+    # die `unique_id` trägt. Der Schlüssel allein genügt nicht: `mode` gibt es
+    # in Heiz-, Mischer- und Zirkulationskreis.
+    known: set[tuple[str, str]] = set()
+
+    @callback
+    def _add_new() -> None:
+        new = [
+            description for description in candidates
+            if (description.circuit, description.key) not in known
+            and ready(coordinator, description)
+        ]
+        if not new:
+            return
+        known.update((description.circuit, description.key) for description in new)
+        async_add_entities(build(description) for description in new)
+
+    _add_new()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new))

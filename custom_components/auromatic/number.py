@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import AuromaticConfigEntry
 from .ebusd import EbusdError
-from .entity import AuromaticEntity, CircuitMixin
+from .entity import AuromaticEntity, CircuitMixin, async_add_available
 
 
 # Schreibend: der eBUS ist langsam, Befehle laufen nacheinander.
@@ -117,10 +117,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(
-        AuromaticNumber(coordinator, description, entry.entry_id)
-        for description in NUMBERS
-        if coordinator.value(description.source, description.message) is not None
+    async_add_available(
+        entry, async_add_entities, NUMBERS,
+        lambda description: AuromaticNumber(coordinator, description, entry.entry_id),
     )
 
 

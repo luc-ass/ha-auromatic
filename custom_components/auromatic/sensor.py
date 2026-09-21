@@ -27,7 +27,7 @@ from homeassistant.helpers.typing import StateType
 from .const import HWC_MODE_OPTIONS, MODE_OPTIONS, ROOT_DEVICE
 from .coordinator import AuromaticConfigEntry
 from .ebusd import parse_date, sum_fields
-from .entity import AuromaticEntity, CircuitMixin
+from .entity import AuromaticEntity, CircuitMixin, async_add_available
 
 # Icons stehen in icons.json und nur dort, wo keine device_class ein Symbol
 # liefert. Wo es eine gibt, wählt Home Assistant zustandsabhängig aus -- das
@@ -469,13 +469,12 @@ async def async_setup_entry(
 ) -> None:
     """Sensoren anlegen -- nur für Register, die auch wirklich antworten."""
     coordinator = entry.runtime_data
-    async_add_entities(
-        AuromaticSensor(coordinator, description, entry.entry_id)
-        for description in SENSORS
-        # Nicht verbaute Fühler melden "cutoff" und werden hier aussortiert,
-        # statt später dauerhaft als "unavailable" herumzustehen.
-        if coordinator.value(description.source, description.message,
-                             description.field, description.status_field) is not None
+    # Nicht verbaute Fühler melden "cutoff" und bekommen keine Entität, statt
+    # später dauerhaft als "unavailable" herumzustehen. Geprüft wird das bei
+    # jedem Abruf, nicht nur beim Setup -- siehe async_add_available.
+    async_add_available(
+        entry, async_add_entities, SENSORS,
+        lambda description: AuromaticSensor(coordinator, description, entry.entry_id),
     )
 
 

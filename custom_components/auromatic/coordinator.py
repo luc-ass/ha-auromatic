@@ -97,6 +97,9 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
         self.participants: dict[str, dict[str, str]] = {}
         # Seit wann ein Register in der Antwort von ebusd fehlt.
         self._missing_since: dict[tuple[str, str], float] = {}
+        # Kreise, die schon einmal einen Wert geliefert haben. Taucht einer neu
+        # darin auf, sind seine Scan-Daten noch nicht geholt.
+        self._answered: set[str] = set()
         # Die Register außerhalb der Warteschlange: wann das nächste Lesen
         # fällig ist, und was zuletzt herauskam (mit dem Zeitpunkt dazu).
         self._read_due: dict[tuple[str, str], float] = {}
@@ -222,19 +225,22 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
     async def async_warm_cache(self) -> None:
         """Fehlende Register einmal gezielt nachlesen -- vor den Entitäten.
 
-        Eine Entität entsteht nur dort, wo beim Setup ein Wert vorliegt. Das
-        ist Absicht: ein nicht angeschlossener Fühler meldet `cutoff` und soll
-        keine bekommen. Ein kalter Zwischenspeicher sieht aber genauso aus.
-        Nach einem Neustart von ebusd ist die Poll-Liste leer; scheitert die
+        Eine Entität entsteht nur dort, wo ein Wert vorliegt. Das ist Absicht:
+        ein nicht angeschlossener Fühler meldet `cutoff` und soll keine
+        bekommen. Ein kalter Zwischenspeicher sieht aber genauso aus. Nach
+        einem Neustart von ebusd ist die Poll-Liste leer; scheitert die
         Anmeldung für einzelne Register -- während eines Scans antwortet ebusd
-        mit "element not found" --, fehlt deren Wert beim ersten Abruf. Die
-        Anmeldung holt das im Hintergrund nach, die Entitäten nicht: die
-        entstehen genau einmal.
+        mit "element not found" --, fehlt deren Wert beim ersten Abruf.
+
+        Seit `async_add_available` ist das kein dauerhafter Verlust mehr: die
+        Entität entsteht, sobald ihr Register antwortet. Sie entsteht dann
+        aber eben auch erst dann, und bis die Warteschlange von ebusd bei
+        einem Register mit Priorität 9 vorbeikommt, vergehen bis zu 21
+        Minuten. Dieser Schritt kauft die Zeit zurück.
 
         Am 2026-09-03 an der Anlage beobachtet: nach einem gemeinsamen Neustart
         von ebusd und Home Assistant fehlten 15 Entitäten, während ebusd für
-        jedes der 42 Register einen gültigen Wert hatte. Ohne diesen Schritt
-        fällt das erst auf, wenn jemand eine Entität vermisst.
+        jedes der 42 Register einen gültigen Wert hatte.
 
         `read -m` kostet nichts, solange der Zwischenspeicher etwas hinreichend
         Junges enthält; erst sonst geht es auf den Bus, und genau das ist hier
@@ -299,7 +305,40 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
                 self._read_cache[(circuit, message)] = (now, value)
                 self._read_due[(circuit, message)] = now + maxage
 
+        self._answered |= {circuit for circuit, values in data.items() if values}
         self.async_set_updated_data(data)
+
+    async def async_warn_silent_circuits(self) -> None:
+        """Melden, welcher Kreis geladen ist und trotzdem nichts liefert.
+
+        Zwei Fälle sehen im Abruf gleich aus und sind es nicht. Kennt ebusd
+        den Kreis gar nicht, ist das kein Fehler: der Kessel war bis zum
+        2026-09-04 stromlos, und während eines Scans ist jeder Kreis
+        vorübergehend unbekannt. Hat ebusd die CSV dagegen geladen und der
+        Kreis schweigt trotzdem, stimmt etwas nicht -- dann steht die
+        Verdrahtung oder der Teilnehmer in Frage, und das gehört ins
+        Protokoll statt in eine stille Lücke in der Oberfläche.
+
+        Nur beim Setup. Später übernimmt `carry_forward` den Fall, dass ein
+        Register verschwindet, und die Entitäten kommen von selbst nach,
+        sobald ihr Kreis antwortet.
+        """
+        try:
+            loaded = await self.client.loaded_circuits()
+        except EbusdError as err:
+            _LOGGER.debug("Geladene Kreise nicht lesbar: %s", err)
+            return
+        silent = sorted(
+            circuit for circuit in CIRCUITS
+            if circuit in loaded and not (self.data or {}).get(circuit)
+        )
+        if silent:
+            _LOGGER.warning(
+                "ebusd hat die Konfiguration für %s geladen, aber keines ihrer "
+                "Register liefert einen Wert. Die zugehörigen Entitäten "
+                "entstehen, sobald der Kreis antwortet.",
+                ", ".join(silent),
+            )
 
     async def async_read_participants(self) -> None:
         """Hersteller, Versionen und Seriennummern der Teilnehmer holen.
@@ -371,6 +410,23 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
             raise UpdateFailed("; ".join(errors))
         if errors:
             _LOGGER.debug("Kreise ohne Antwort: %s", "; ".join(errors))
+
+        # Ein Kreis, der zum ersten Mal antwortet, bekommt gleich Entitäten --
+        # die Plattformen legen sie an, sobald diese Daten stehen. Sie lesen
+        # dabei Hersteller, Softwarestand und Seriennummer aus `participants`,
+        # und zwar genau einmal, beim Anlegen des Geräts. Waren die Scan-Daten
+        # beim Setup noch nicht da -- ebusd scannte noch --, bliebe das Gerät
+        # für immer ohne diese Angaben. 'scan result' kostet kein Telegramm.
+        answering = {circuit for circuit, values in data.items() if values}
+        if self.data is None:
+            self._answered = answering
+        elif new := answering - self._answered:
+            self._answered |= new
+            _LOGGER.info(
+                "Kreis %s antwortet erstmals, Gerätedaten werden nachgeholt",
+                ", ".join(sorted(new)),
+            )
+            await self.async_read_participants()
 
         await self._read_outside_queue(data)
         self._bridge_gaps(data)

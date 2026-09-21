@@ -20,7 +20,7 @@ Von innen heißt ebusd `2ad9b828-ebusd:8888`.
 ## Tests
 
 ```
-python3 tests/test_ebusd.py         # 69 Prüfungen, braucht kein Home Assistant
+python3 tests/test_ebusd.py         # 73 Prüfungen, braucht kein Home Assistant
 python3 tests/test_translations.py  # 497 Prüfungen, braucht kein Home Assistant
 ```
 
@@ -98,6 +98,21 @@ Wo eine Prüfung Heizkreis und Mischerkreis unterscheiden muss, darf sie nicht
    Warteschlange — gemessene 82 Sekunden später. Und für die Register aus
    `READ_MAXAGE` ein `read -m`, das ebusd aus dem Zwischenspeicher beantwortet
    — auf den Bus geht es dort höchstens einmal je Höchstalter.
+
+8. **Entitäten entstehen nicht nur beim Setup.** Nachgelegt wird, sobald ein
+   Register zum ersten Mal antwortet -- `entity.async_add_available`, das
+   Muster der HA-Regel `dynamic-devices`. Die Prüfung einmal beim Setup zu
+   machen und dann nie wieder war der Ausfall vom 2026-09-19: Home Assistant
+   startete um 20:25, während ebusd noch scannte, die beiden zuletzt geladenen
+   Adressen 0x50 (`mc`) und 0xec (`sc`) waren noch nicht an der Reihe -- und
+   ihre 24 Entitäten gab es 34 Stunden lang nicht, bis jemand die Integration
+   neu lud. Keine Zeile im Protokoll: es fehlte ja nichts, es war nie da.
+
+   Der Rückruf am Koordinator muss auch dann angemeldet werden, wenn die
+   Plattform leer bleibt. Ein `DataUpdateCoordinator` ohne Zuhörer stellt
+   seinen Abruf ein (`update_coordinator.py`: `if ... self._listeners ...:
+   self._schedule_refresh()`), und ein beim Setup abwesender Kreis käme dann
+   nie wieder -- die Anmeldung ist das, was ihn zurückholt.
 
 ## Sprache
 

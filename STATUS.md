@@ -1,6 +1,6 @@
 # Stand der Umsetzung
 
-Stand: 2026-09-15. Planungsdokument mit Herleitung und Registerkarte:
+Stand: 2026-09-21. Planungsdokument mit Herleitung und Registerkarte:
 <https://claude.ai/code/artifact/e2491a1b-e82f-496d-95e7-3a4633908ec0>
 
 ---
@@ -242,6 +242,58 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   knapp darunter — nur hängt `HcPumpStarts` in der 21-Minuten-Warteschlange,
   und das ist derzeit das Grobe an der Messung, nicht der Temperaturverlauf
   (siehe Punkt 10).
+
+- **24 Entitäten waren 34 Stunden lang weg, und im Protokoll stand nichts**
+  (2026-09-19 bis 2026-09-21, Recorder und `system_log` von Home Assistant,
+  Zeiten in MESZ). Betroffen waren **genau die Kreise `mc` und `sc`** —
+  7 + 16 Register, keines aus einem anderen Kreis. Das sind die beiden
+  höchsten Busadressen, `0x50` und `0xec`, und damit die, die ebusd beim
+  Scannen zuletzt lädt.
+
+  | Zeit | Ereignis |
+  |---|---|
+  | 19.09. 20:20:01 | letzter Wert aus `sc`/`mc` |
+  | 19.09. 20:25:29 | Home-Assistant-Kern startet (läuft seither durch) |
+  | 19.09. 20:25:32–40 | auroMATIC-Setup; `bai`, `hc`, `hwc`, `cc` bekommen sofort wieder Werte |
+  | 19.09. 20:26:16 | die 24 `mc`/`sc`-Entitäten werden `unavailable` |
+  | 21.09. 06:34:52 | Neuladen der Integration — alle 24 in derselben Sekunde wieder mit Wert |
+
+  **Die Entitäten wurden nie angelegt.** Sie waren keine Entität, die keinen
+  Wert mehr bekommt, sondern ein Registrierungseintrag ohne Entität — und
+  genau den zeigt Home Assistant als „unavailable" an. Belegt durch die
+  44 Sekunden zwischen Setup und Ausfall: für die Frist aus
+  `CARRY_FORWARD_LIMIT` (600 s) ist das zu kurz, für das Aufräumen der
+  Registrierung nach dem Plattform-Setup genau richtig. Und `bai` bekam um
+  20:25:40 einen neuen Zustand geschrieben, `sc` nicht — die Entität gab es
+  zu diesem Zeitpunkt nicht mehr.
+
+  **Die Integration selbst war gesund.** Dass beim Neuladen alle 24 Werte
+  *sofort* dastanden, heißt: ebusd hatte `mc` und `sc` längst wieder in der
+  Poll-Liste, der Koordinator hatte die Daten. Es fehlten nur die Entitäten
+  dazu. 34 Stunden Lücke in der Statistik für Werte, die vorlagen.
+
+  **Keine Warnung, und das mit System.** `carry_forward` schlägt an, wenn ein
+  Wert *verschwindet*; die Poll-Prüfung, wenn die Liste *schrumpft*. Hier war
+  nie etwas da. Im `system_log` stand zu `auromatic` über den ganzen Zeitraum
+  nichts außer der Deprecation-Meldung zu `via_device`.
+
+  Der Auslöser am Samstagabend ist nicht mehr rekonstruierbar — das Journal
+  reicht nur bis 20.09. 07:29 zurück, ebusd schreibt 9 MB in 20 Stunden und
+  verdrängt alles Ältere. Für die Lehre ist es auch gleich: eine stromlose
+  Heizung nimmt den busgespeisten Adapter mit, ebusd scannt danach neu, und
+  wer in diesem Fenster ein Setup laufen lässt, verliert Entitäten. Behoben
+  in 0.3.4, siehe Invariante 8 in `CLAUDE.md`:
+
+  1. `entity.async_add_available` legt Entitäten nach, sobald ihr Register
+     zum ersten Mal antwortet — das Muster der HA-Regel `dynamic-devices`.
+     Damit heilt sich auch der Fall, für den es bisher einen Reload brauchte:
+     ein Teilnehmer, der später Strom bekommt (der Kessel, 2026-09-04).
+  2. Das Setup bricht mit `ConfigEntryNotReady` ab, solange ebusd scannt
+     (`test-before-setup`). Sonst stünden die Kreise zwar da, aber ohne die
+     Gerätedaten aus `scan result`.
+  3. `async_warn_silent_circuits` meldet beim Setup, welcher Kreis geladen
+     ist und trotzdem schweigt. Der stromlose Kessel bleibt draußen: seine
+     CSV ist dann gar nicht geladen.
 
 - **Der Heizversuch vom 2026-09-06 (09:47–10:47, 120 Messzeilen à 30 s).**
   Erster Betrieb der Heizfunktionen unter Beobachtung, aufgezeichnet mit
@@ -1232,7 +1284,7 @@ Liefert `ebusctl` nichts, liegt es nicht an der Integration.
 | Symptom | Erste Vermutung |
 |---|---|
 | Alles `unavailable` | ebusd nicht erreichbar. Hostname `2ad9b828-ebusd`, Port 8888. Diagnostics der Integration herunterladen. |
-| Einzelne Entität fehlt | Register antwortet nicht oder meldet `cutoff`. Entitäten werden nur angelegt, wenn beim Setup ein gültiger Wert vorliegt — nach Änderungen an der Anlage Integration neu laden. |
+| Einzelne Entität fehlt | Register antwortet nicht oder meldet `cutoff`. Angelegt wird nur, was einen gültigen Wert liefert — aber seit 0.3.4 auch nachträglich, sobald es das tut. Ein Neuladen ist dafür nicht mehr nötig; bei Priorität 9 kann es bis zu 21 Minuten dauern. |
 | Werte springen oder sind absurd | Fühlerstatus nicht ausgewertet. `status_field` in der Beschreibung prüfen. |
 | Schreiben schlägt fehl | Antwort von ebusd ansehen; `HomeAssistantError` trägt den Originaltext. Access-Level von ebusd prüfen. |
 | Bedienelement springt zurück | Der Wert wurde geschrieben, aber aus dem Cache alt zurückgelesen. `ebusctl read -f -c mc OperatingMode` gegen `ebusctl find -c mc` halten. |
@@ -1439,6 +1491,31 @@ ohne HA-Installation.
    Heizkreis mit weniger Vorlauf noch warm wird, auch. Der Punkt steht hier,
    damit die Zahl beim nächsten Lauf mit auf dem Zettel steht, nicht als
    Aufforderung, an ihr zu drehen.
+
+14. **`via_device` ist veraltet und hört 2027.8.0 auf zu funktionieren.** Bei
+   jedem Setup schreibt Home Assistant dazu Warnungen ins Protokoll:
+
+   > Detected that custom integration 'auromatic' calls
+   > `device_registry.async_get_or_create` with a deprecated `via_device`
+   > parameter; use `via_device_id` instead [...] This will stop working in
+   > Home Assistant 2027.8.0
+
+   Gemeldet wird es je Plattform, die Quelle ist aber eine einzige:
+   `AuromaticEntity.__init__` hängt jeden Kreis mit
+   `via_device=(DOMAIN, entry_id)` unter den Regler.
+
+   Mechanisch ist der Umbau nicht. `via_device_id` will die **Registrierungs-
+   ID** des übergeordneten Geräts, nicht dessen Kennung — die gibt es erst,
+   wenn das Wurzelgerät angelegt ist (`__init__.py` bekommt sie von
+   `async_get_or_create` zurück). Sie müsste also am Koordinator hinterlegt
+   und von dort gelesen werden. Zu prüfen ist dabei der Zeitpunkt: seit 0.3.4
+   entstehen Entitäten auch lange nach dem Setup, und die ID muss dann immer
+   noch stimmen — auch nach einem Neuladen, bei dem das Gerät bestehen
+   bleibt, der Config-Entry aber neu aufgesetzt wird.
+
+   Kein Zeitdruck, aber auch nichts, was von selbst weggeht: bis dahin steht
+   die Meldung bei jedem Start im Protokoll und verdeckt dort Platz für
+   Warnungen, die zählen.
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
