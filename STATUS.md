@@ -1,6 +1,6 @@
 # Stand der Umsetzung
 
-Stand: 2026-09-13. Planungsdokument mit Herleitung und Registerkarte:
+Stand: 2026-09-15. Planungsdokument mit Herleitung und Registerkarte:
 <https://claude.ai/code/artifact/e2491a1b-e82f-496d-95e7-3a4633908ec0>
 
 ---
@@ -171,7 +171,7 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   | `bai HwcHours` | 657 | 657 | unverändert |
   | `bai FanHours` | 8174 | 8174 | unverändert |
   | `bai FanStarts` | 50 255 | 50 262 | +7 |
-  | `bai HcPumpStarts` | 54 820 | 54 845 | +25, also ≈3,6/Tag |
+  | `bai HcPumpStarts` | 54 820 | 54 845 | +25, also ≈3,6/Tag — der Blockierschutz, siehe unten |
   | `ui BoilerHoursB1` | 60 836 | 60 838 | +2 |
   | `bai DeactivationsIFC` | 1 | 1 | unverändert |
 
@@ -183,6 +183,65 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
 
   **Für Punkt 4 heißt das: die Woche zählt nicht.** Der Nachweis unter Last
   braucht aufgedrehte Thermostate und Wärmeabnahme, nicht Laufzeit.
+
+- **Der Einbruch im Sammelrücklauf ist der Pumpenblockierschutz** (Historie
+  2026-09-05 bis 2026-09-15, Recorder von Home Assistant, Zeiten in MESZ).
+  Alle 22 h 52 min fällt `sc SumBackflowSensor` binnen ein bis zwei Minuten um
+  **2–3 K**, bleibt rund 40 Minuten unten und kehrt in weiteren 40–60 Minuten
+  auf die Grundlinie zurück.
+
+  | Beginn | Abstand | Grundlinie | Minimum | zurück |
+  |---|---|---|---|---|
+  | 05.09. 21:33 | — | 27,1 | 25,2 | 22:07 |
+  | 07.09. 09:34 | (36,0 h)¹ | 27,9 | 26,1 | 10:06 |
+  | 08.09. 08:17 | 22,72 h | 29,1 | 26,4 | 09:33 |
+  | 09.09. 07:13 | 22,93 h | 28,7 | 26,1 | 08:26 |
+  | 10.09. 06:09 | 22,93 h | 27,1 | 24,6 | 07:28 |
+  | 11.09. 11:41 | (29,5 h)² | 25,5 | 23,1 | 12:20 |
+  | 12.09. 10:27 | 22,77 h | 25,8 | 23,3 | 11:24 |
+  | 13.09. 09:20 | 22,88 h | 26,2 | 23,6 | 10:31 |
+  | 14.09. 08:18 | 22,97 h | 25,9 | 23,3 | 09:14 |
+  | 15.09. 07:12 | 22,90 h | 26,6 | 23,5 | 08:18 |
+
+  ¹ vom Heizversuch am 2026-09-06 überlagert · ² von der Wartung am 2026-09-10
+  überlagert — beide Male hat ein echter Pumpenlauf die Uhr neu gestellt.
+
+  *Der Beleg steht im Zähler.* `bai HcPumpStarts` springt genau zu diesen
+  Zeitpunkten um **+3**, aufgeteilt auf zwei Poll-Zyklen (+1, 21 Minuten später
+  +2): am 2026-09-15 um 07:17:10 auf 54 849 und um 07:38:55 auf 54 851,
+  während der Rücklauf von 07:12 bis 07:55 unten lag. Dabei `bai Flame` `off`,
+  `bai Statenumber` unverändert 31 („kein Wärmebedarf"), beide Heizkreise auf
+  `low`. **Die Pumpe läuft, der Brenner nicht.**
+
+  *Der Mechanismus ist Invariante 4 in Reinform.* Ohne Durchfluss zeigt der
+  Fühler die Temperatur des Heizungsraums (26,5 °C), nicht die der Anlage. Die
+  Pumpe schiebt das stehende Systemwasser (Sammelvorlauf konstant
+  23,0–23,5 °C) an ihm vorbei, danach läuft er wieder auf Raumtemperatur.
+  Gegenproben im selben Fenster: `bai Status01` Rücklauf −1 K, `mc FlowTemp`
+  −0,5 bis −0,7 K, Solarpumpe `off`, Speicherfühler ungestört, Zirkulation ohne
+  Zustandswechsel.
+
+  *„Morgens" ist Zufall.* 22 h 52 min sind keine 24 — das Ereignis wandert
+  **rund 1,1 h pro Tag nach vorn**. Am 2026-09-05 lag es um 21:33, seither ist
+  es durch den Vormittag gelaufen. Prüfbar, solange kein echter Pumpenlauf
+  dazwischenkommt: **16.09. 06:04 · 17.09. 04:56 · 18.09. 03:48 · 19.09. 02:41
+  · 20.09. 01:33 · 21.09. 00:25 · 21.09. 23:18.** Liegt der Einbruch nicht
+  dort, stimmt diese Herleitung nicht.
+
+  *Was daraus folgt.* Die ≈3,6 Pumpenstarts pro Tag aus der Wochentabelle oben
+  sind damit erklärt (drei je Zyklus, also 3,2/Tag). **Das Tagesminimum des
+  Sammelrücklaufs in der Langzeitstatistik ist dieser Lauf** und kein
+  Anlagenwert — wer die Kurve ohne diesen Zusammenhang liest, sieht ein
+  wanderndes Minimum ohne physikalische Bedeutung. Umgekehrt ist der Lauf ein
+  geschenkter Durchflusstest: alle 22¾ Stunden zeigt der Fühler 40 Minuten
+  lang die *echte* Systemtemperatur statt der Kellerluft, und er bestätigt die
+  Zuordnung des Fühlers ein drittes Mal, diesmal ohne Brennerlauf.
+
+  Offen bleibt die genaue Regel im Gerät. „23 Stunden nach dem letzten
+  Pumpenlauf" wäre der naheliegende Kandidat, die gemessenen 22:52 liegen
+  knapp darunter — nur hängt `HcPumpStarts` in der 21-Minuten-Warteschlange,
+  und das ist derzeit das Grobe an der Messung, nicht der Temperaturverlauf
+  (siehe Punkt 10).
 
 - **Der Heizversuch vom 2026-09-06 (09:47–10:47, 120 Messzeilen à 30 s).**
   Erster Betrieb der Heizfunktionen unter Beobachtung, aufgezeichnet mit
@@ -1296,6 +1355,14 @@ ohne HA-Installation.
    *anderen* Entitäten schneller veralten, als ihre Anzeige vermuten lässt --
    und welche Beschriftung wie bei `HcStarts` auf einer Annahme statt auf einer
    Messung ruht.
+
+   Ein zweiter Kandidat ist seit dem 2026-09-15 dazugekommen, und der ist kein
+   Zustand, sondern ein Zähler: **`bai HcPumpStarts` kommt nur alle 21 Minuten
+   dran**, und damit lässt sich der Blockierschutzlauf (Abschnitt 1) zwar
+   eindeutig zuordnen, aber sein Takt nicht auf die Minute bestimmen. Die
+   Temperaturkurve ist hier feiner als der Zähler, der sie erklärt. Ein
+   `read -m` mit kurzem Höchstalter würde die Frage beantworten, ob die Regel
+   im Gerät „23 Stunden nach dem letzten Pumpenlauf" lautet.
 11. **Der Fehlerspeicher des Kessels hat keine Entität — und das hat am
    2026-09-13 zum ersten Mal etwas gekostet.** `bai Errorhistory` lässt sich
    nicht pollen (Master-Feld für den Index). Ein Weg wäre, ihn wie
@@ -1490,6 +1557,23 @@ Assistant ist ein Messmittel.** Sie stand die ganze Zeit zur Verfügung und
 wurde nicht genutzt, weil der Blick auf dem eigenen Rekorder lag. Zweitens:
 die Zeitstempel der REST-API kommen in **UTC** — im ersten Anlauf hat das zwei
 Stunden Versatz erzeugt und die Läufe an der falschen Stelle gesucht.
+
+Erledigt am 2026-09-15: der **morgendliche Einbruch im Sammelrücklauf** ist
+erklärt (Abschnitt 1) — ein Pumpenblockierschutzlauf alle 22 h 52 min, ohne
+Brenner, der das stehende Systemwasser am Fühler vorbeischiebt. Er ist nicht
+morgendlich, sondern wandert täglich rund 1,1 Stunden nach vorn; der Eindruck
+entsteht nur, weil der Zyklus gerade im Frühmorgenfenster steht. Erklärt sind
+damit auch die ≈3,6 Pumpenstarts pro Tag aus der Wochentabelle, und ein
+offener Punkt hat einen zweiten Kandidaten bekommen (10: `HcPumpStarts` ist zu
+grob abgetastet, um den Takt auf die Minute zu bestimmen).
+
+Die Lehre vom 2026-09-13 hat dabei zum zweiten Mal getragen: gemessen wurde
+wieder ausschließlich mit der Historie von Home Assistant, ohne einen einzigen
+zusätzlichen Buszugriff. Dazu eine dritte, die dem Fall eigen ist: **eine
+Periode, die nicht 24 Stunden beträgt, sieht wie eine Tageszeit aus, solange
+man nur wenige Tage nebeneinanderlegt.** Erst die Reihe über zehn Tage zeigt
+die Wanderung — und erst sie erlaubt eine Prognose, an der sich die Erklärung
+widerlegen lässt.
 
 ## 6. Versionsverwaltung
 
