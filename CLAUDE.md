@@ -10,12 +10,13 @@ Bedienung und Installation: [README.md](README.md).
 
 ```
 Heizung ── eBUS ── Adapter Shield C6 ── ebusd ── custom_components/auromatic ── HA
-                   10.23.10.114:9999   :8888              10.23.10.123
+                   10.14.107.20:9999   :8888              10.14.70.14
 ```
 
-Die Heizungsinstanz ist **10.23.10.123** -- im Netzsegment stehen mehrere
-Home-Assistant-Instanzen, und der Name `homeassistant` zeigt auf eine andere.
-Von innen heißt ebusd `2ad9b828-ebusd:8888`.
+Die Heizungsinstanz ist **10.14.70.14** (bis Anfang November 2026 war es
+10.23.10.123, der Adapter stand auf 10.23.10.114). Von außen immer die IP
+nehmen, nicht einen Namen -- Namen haben hier schon einmal auf die falsche
+Instanz gezeigt. Von innen heißt ebusd `2ad9b828-ebusd:8888`.
 
 ## Tests
 

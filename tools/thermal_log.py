@@ -6,7 +6,7 @@ Sollwert bis zum Rücklauf. Läuft ohne Home Assistant, direkt gegen ebusd.
 
     python3 tools/thermal_log.py --host homeassistant --out heizversuch.csv
 
-Der Host ist der von *ebusd*, nicht der des Adapters: 10.23.10.114:9999 ist
+Der Host ist der von *ebusd*, nicht der des Adapters: 10.14.107.20:9999 ist
 das Adapter Shield, ebusd selbst läuft als Add-on. Von innerhalb von Home
 Assistant heißt es `2ad9b828-ebusd`, von außen braucht es die Adresse des
 HA-Hosts und einen im Add-on veröffentlichten Port 8888.

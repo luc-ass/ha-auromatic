@@ -12,17 +12,24 @@ Stand: 2026-09-21. Planungsdokument mit Herleitung und Registerkarte:
 | Regler | Vaillant auroMATIC 620/3, Kennung `SOLSY`, SW 0500 / HW 6301, Ident 0020076588, Serie `21161200200765880907005114N4`, KW 12/2016 |
 | Bedienteil | `UI`, „CI of VRS 620/3", SW 0508 / HW 6201, Ident 0020080465, Serie `21161200200804650907005300N5` |
 | Wärmeerzeuger | Vaillant `BAI00`, SW 0414 / HW 7401 — **wandhängende Therme (VC), kein Kessel**; keine Artikel-/Seriennummer am Bus, Elektronik `SB206740` |
-| Adapter | eBUS Adapter Shield C6, ESP32-C6, PCB 2.44.0, **10.23.10.114** |
+| Adapter | eBUS Adapter Shield C6, ESP32-C6, PCB 2.44.0, **10.14.107.20** |
 | Adapter-Modus | `ens` (enhanced) über TCP **Port 9999 — nur ein Client gleichzeitig** |
 | ebusd | 26.1, als Home-Assistant-Add-on, Hostname **`2ad9b828-ebusd`**, Port 8888 |
-| Home Assistant | HA OS / Supervised, **10.23.10.123** |
+| Home Assistant | HA OS / Supervised, **10.14.70.14** |
 
-> **In diesem Netzsegment stehen mehrere Home-Assistant-Instanzen.** Die
-> Heizungsinstanz ist **10.23.10.123**; der Name `homeassistant` löst auf eine
-> andere auf (10.14.70.14), die zwar auf 8123 antwortet, aber kein ebusd hat.
-> Am 2026-09-06 eine halbe Stunde gekostet: Port 8888 dort wies die Verbindung
-> ab, und das sah aus wie eine fehlende Freigabe. Wer von außen an ebusd will,
-> nimmt die **IP**, nicht den Namen.
+> **Umzug Anfang November 2026.** Die Heizungsinstanz ist jetzt
+> **10.14.70.14**, der Adapter **10.14.107.20** (ebusd `info`: `device:
+> 10.14.107.20:9999`). Bis dahin waren es 10.23.10.123 und 10.23.10.114; die
+> alte Instanz antwortet am 2026-11-05 weder auf 8123 noch auf 8888.
+>
+> Ausgerechnet 10.14.70.14 war vorher die *andere* Instanz: der Name
+> `homeassistant` löste darauf auf, sie antwortete auf 8123, hatte aber kein
+> ebusd. Am 2026-09-06 hat das eine halbe Stunde gekostet -- Port 8888 wies
+> die Verbindung ab, und das sah aus wie eine fehlende Freigabe. Wer in
+> älteren Abschnitten dieses Dokuments 10.14.70.14 liest, liest also von der
+> falschen Instanz. Die Lehre bleibt: wer von außen an ebusd will, nimmt die
+> **IP**, nicht den Namen, und prüft mit `info`, dass dort wirklich ebusd an
+> diesem Adapter hängt.
 >
 > Von innerhalb von Home Assistant ist es weiterhin `2ad9b828-ebusd:8888` --
 > so spricht auch die Integration mit ebusd, und dafür braucht es keinen
