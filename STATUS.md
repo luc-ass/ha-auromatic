@@ -1528,7 +1528,7 @@ ohne HA-Installation.
    die Meldung bei jedem Start im Protokoll und verdeckt dort Platz für
    Warnungen, die zählen.
 
-   **Umgesetzt am 2026-11-05 in 0.3.6b1.** `__init__.py` nimmt den
+   **Umgesetzt am 2026-11-05 in 0.3.6.** `__init__.py` nimmt den
    Geräteeintrag, den `async_get_or_create` für den Regler zurückgibt, und
    legt dessen `.id` am Koordinator ab -- als `root_device_id: str`, ohne
    Vorgabewert, und vor `async_forward_entry_setups`. Die Kreise tragen
@@ -1555,7 +1555,8 @@ ohne HA-Installation.
    Stand vorher (0.3.5, 2026-11-05): 8 Geräte, die 7 Kreise -- Heizkreis,
    Fußbodenheizung, Warmwasser, Zirkulation, Solar, Bedienteil, Therme --
    alle mit `via_device_id` auf den Regler `5c00927b…`. Nach dem Einspielen
-   muss derselbe Stand herauskommen.
+   von 0.3.6b1 identisch, sowohl nach dem Neustart als auch nach einem
+   Neuladen der Integration; die Warnung zu `via_device` ist seitdem weg.
 15. ~~**`water_heater` nutzt veraltete Temperatur-Attribute, ab 2027.11 kaputt.**~~
    Seit Home Assistant 2026.11.0 (2026-11-04) meldet jeder Start:
 
