@@ -1516,6 +1516,20 @@ ohne HA-Installation.
    Kein Zeitdruck, aber auch nichts, was von selbst weggeht: bis dahin steht
    die Meldung bei jedem Start im Protokoll und verdeckt dort Platz für
    Warnungen, die zählen.
+15. **`water_heater` nutzt veraltete Temperatur-Attribute, ab 2027.11 kaputt.**
+   Seit Home Assistant 2026.11.0 (2026-11-04) meldet jeder Start:
+
+   > custom_components.auromatic.water_heater::AuromaticWaterHeater provides
+   > the deprecated _attr_temperature_unit, this will stop working in Home
+   > Assistant 2027.11, use _attr_native_temperature_unit instead
+
+   Ebenso für `current_temperature` und `target_temperature`, Ersatz sind
+   `native_current_temperature` und `native_target_temperature`. Betroffen
+   ist `water_heater.py` (Zeilen 46, 63, 68). Im Kern eine Umbenennung, HA
+   rechnet die Einheit dann selbst um. Mit zu prüfen:
+   `_attr_target_temperature_step` (Zeile 56), `min_temp`/`max_temp` und der
+   Schreibpfad über `async_set_temperature`, ob sie ebenfalls eine
+   `native_`-Form brauchen.
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
