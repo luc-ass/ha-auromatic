@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -28,6 +29,8 @@ from .const import HWC_MODE_OPTIONS, MODE_OPTIONS, ROOT_DEVICE
 from .coordinator import AuromaticConfigEntry
 from .ebusd import parse_date, sum_fields
 from .entity import AuromaticEntity, CircuitMixin, async_add_available
+
+_LOGGER = logging.getLogger(__name__)
 
 # Icons stehen in icons.json und nur dort, wo keine device_class ein Symbol
 # liefert. Wo es eine gibt, wählt Home Assistant zustandsabhängig aus -- das
@@ -483,6 +486,24 @@ class AuromaticSensor(AuromaticEntity, SensorEntity):
 
     entity_description: AuromaticSensorDescription
 
+    # Werte, die ebusd für einen Enum-Sensor liefert, ohne dass sie in seiner
+    # Optionsliste stehen. Home Assistant weist einen Zustand außerhalb der
+    # Liste mit ValueError ab -- bei jedem Abruf, und der Sensor bleibt dabei
+    # still auf dem alten Wert stehen. So geschehen mit `waterduringheat` im
+    # Systemzustand: 354 Fehler in drei Tagen, bis 0.3.7 (offener Punkt 17).
+    # Stattdessen wird der Rohwert angezeigt, die Liste wächst um ihn, und
+    # das Protokoll bekommt genau eine Warnung je Sensor und Wert. Ohne
+    # Übersetzung zeigt die Oberfläche den Rohwert -- sichtbar falsch statt
+    # unsichtbar veraltet.
+    _unlisted: tuple[str, ...] = ()
+
+    @property
+    def options(self) -> list[str] | None:
+        options = self.entity_description.options
+        if options is None or not self._unlisted:
+            return options
+        return [*options, *self._unlisted]
+
     @property
     def native_value(self) -> StateType | date:
         if self.entity_description.value_fn is not None:
@@ -494,6 +515,15 @@ class AuromaticSensor(AuromaticEntity, SensorEntity):
         if raw is None:
             return None
         if self.entity_description.device_class is SensorDeviceClass.ENUM:
+            if raw not in (self.options or ()):
+                self._unlisted = (*self._unlisted, raw)
+                _LOGGER.warning(
+                    "%s: ebusd liefert '%s' für %s %s, der Wert steht weder in "
+                    "der Optionsliste noch in den Übersetzungen -- er wird "
+                    "unübersetzt angezeigt. Bitte als Fehler melden.",
+                    self.entity_id, raw, self.entity_description.source,
+                    self.entity_description.message,
+                )
             return raw
         try:
             wert = float(raw)

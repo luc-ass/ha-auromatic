@@ -1638,6 +1638,49 @@ ohne HA-Installation.
    Ein Grund, das wieder aufzunehmen, wäre eine Veraltung von
    `via_device_id` für Teile desselben Geräts -- nicht das Angebot allein.
 
+17. **Systemzustand kennt nur vier von sechs Werten.** Gefunden am 2026-11-05
+   im Protokoll von HA 2026.11.0, 354-mal zwischen dem 2026-11-01 und dem
+   2026-11-03 (das Protokoll reicht nicht weiter zurück):
+
+   > ValueError: Sensor sensor.heizung_kg_heizungskeller_regler_status
+   > provides state value 'waterduringheat', which is not in the list of
+   > options provided
+
+   `system_mode` (`ui SystemModeStream1`) führte `heat`, `off`, `water` und
+   `cool`. ebusd definiert sechs:
+
+   ```
+   r1,ui,SystemModeStream1,SystemModeStream1,,15,b509,0d6e00,value,s,UCH,0=off;1=heat;2=cool;3=water;4=waterduringheat;5=waterduringcool,,"Off=0, Heating=1, Cooling=2, Dhw=3, DhwDuringCH=4, DhwDuringCooling=5"
+   ```
+
+   Home Assistant weist einen Zustand außerhalb der Liste bei jedem Abruf ab,
+   und der Sensor bleibt dabei **still auf dem alten Wert stehen** -- kein
+   `unavailable`. Die Fehler kamen in Schüben morgens und abends, zur Zeit der
+   Warmwasserbereitung bei laufender Heizung.
+
+   **Woher die Beschriftungen kommen.** Die vier bisherigen deutschen Texte
+   („Heizen", „Aus", „Warmwasser", „Kühlen") waren nicht belegt. Der
+   „Systemstatus" der Bedienungsanleitung 0020094390 (Kap. 5.2) ist eine
+   reine Symbolgrafik. Als Text zeigt den Zustand die Fachhandwerkerebene:
+   Installationsanleitung 0020094391, Menü **C8 Wärmeerzeuger --
+   Information**, Zeile **Status** (Tab. 7.19: „zeigt an, in welchem Status
+   sich die Heizungsanlage gerade befindet (z. B. Status Heizbetrieb)"). Am
+   Display abgelesen am 2026-11-05 bei `heat`: **„Heizbetrieb"** -- damit ist
+   bestätigt, dass die Zeile dieses Register zeigt, und „Heizen" war falsch.
+   Die übrigen Texte stehen in keiner der beiden Anleitungen und werden am
+   Display abgelesen; `cool` und `waterduringcool` kann diese Anlage nicht
+   zeigen.
+
+   **Stufe 1, 0.3.7b1:** Ein Enum-Sensor reicht einen Wert außerhalb seiner
+   Liste jetzt durch, hängt ihn an seine `options` an und warnt **einmal** je
+   Sensor und Wert. Gilt für alle vier Enum-Sensoren. Gegen HA 2026.11.0
+   ausprobiert (Probelauf mit dem echten `SensorEntity.state`): kein
+   ValueError, Rohwert sichtbar, eine Warnung je neuem Wert.
+
+   **Stufe 2, 0.3.7:** die beiden fehlenden Werte fest in die Liste, alle
+   Texte nach dem Display, und die ebusd-Definition als Fixture in die Tests
+   -- die Optionen müssen jeden Wert der Definition abdecken.
+
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
 siehe „Die Reglerbezeichnungen stehen in der archivierten CSV" unten.
