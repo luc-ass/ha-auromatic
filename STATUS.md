@@ -1591,7 +1591,7 @@ ohne HA-Installation.
    jetzt auf **2026.11.0**, sonst böte HACS das Update auch Instanzen an, auf
    denen der Speicher ohne Temperatur und mit `AttributeError` dastünde.
 
-16. **`ChildDeviceInfo` für die Kreise -- geplant für 0.3.7.** Neu in HA
+16. ~~**`ChildDeviceInfo` für die Kreise -- geplant für 0.3.7.**~~ Neu in HA
    2026.11: ein „leichtgewichtiger logischer Teil eines Geräts", verknüpft
    über `parent_device_id` (`helpers/device_registry.py`, Klasse
    `ChildDeviceInfo`). Inhaltlich passt das auf die Kreise: Heizkreis,
@@ -1611,6 +1611,32 @@ ohne HA-Installation.
      `unique_id`s und Historie die Umwandlung unverändert überstehen.
    - Ein Kindgerät darf selbst kein Elternteil sein und muss zum selben
      Config-Entry gehören wie sein Elternteil -- beides ist hier erfüllt.
+
+   **Geschlossen am 2026-11-05, ohne Umbau.** `ChildDeviceInfo` ist ein
+   Angebot, keine Pflicht: `via_device_id` steht nicht unter den veralteten
+   Geräteangaben (`_DEPRECATED_DEVICE_INFO_PARAMETERS`), HA meldet nichts, und
+   der Umwandlungsweg beschreibt sich selbst als Möglichkeit für
+   Integrationen, die ihre Geräte schon per `via_device` aufteilen. Der Stand
+   aus 0.3.6 bleibt damit gültig. Was die Untersuchung im Quelltext von HA
+   2026.11.0 ergeben hat -- falls die Frage wiederkommt:
+
+   - Die Umwandlung geschieht von selbst, sobald ein bestehendes Gerät als
+     `ChildDeviceInfo` angemeldet wird, und **behält die Geräte-ID**
+     (`_async_convert_device_to_child`). Entitäten, Historie, Bereich,
+     `name_by_user`, Labels und Deaktivierung bleiben; Hersteller, Modell,
+     Versionen, Seriennummer und `via_device_id` fallen weg.
+   - **Es gibt keinen Rückweg.** Eine Umwandlung vom Kind- zum normalen
+     Gerät existiert nicht, und ein normales Gerät mit der Kennung eines
+     Kindgeräts lehnt HA mit `DeviceInfoError` ab. Ein Downgrade danach
+     ließe die Entitäten der fünf Kreise nicht mehr entstehen.
+   - Sichtbar ändert sich an dieser Anlage nichts: alle Geräte haben einen
+     eigenen Namen und den Bereich „Heizungskeller", und ein Kindgerät mit
+     Bereich setzt den Namen des Elternteils nicht davor.
+   - Verloren ginge die Busadresse, die heute im Modell steht
+     („auroMATIC 620/3 (hc @ 0x26)").
+
+   Ein Grund, das wieder aufzunehmen, wäre eine Veraltung von
+   `via_device_id` für Teile desselben Geräts -- nicht das Angebot allein.
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
