@@ -72,6 +72,15 @@ type AuromaticConfigEntry = ConfigEntry[AuromaticCoordinator]
 class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
     """Fragt einmal pro Intervall alle Kreise ab und teilt das Ergebnis."""
 
+    # Die Registrierungs-ID des Reglers im Geräteregister -- die Kreise hängen
+    # per `via_device_id` daran. Gesetzt wird sie in `async_setup_entry`, vor
+    # dem Start der Plattformen; bewusst ohne Vorgabewert. Stimmt die
+    # Reihenfolge einmal nicht, scheitert das Anlegen der Entitäten mit einem
+    # AttributeError im Protokoll, statt dass die Geräte still ohne Regler
+    # entstehen. Die ID selbst ist dauerhaft: Home Assistant führt sie im
+    # Geräteregister, Neustart und Neuladen liefern dieselbe zurück.
+    root_device_id: str
+
     def __init__(
         self,
         hass: HomeAssistant,

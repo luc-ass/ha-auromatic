@@ -22,7 +22,7 @@ Instanz gezeigt. Von innen heißt ebusd `2ad9b828-ebusd:8888`.
 
 ```
 python3 tests/test_ebusd.py         # 73 Prüfungen, braucht kein Home Assistant
-python3 tests/test_translations.py  # 497 Prüfungen, braucht kein Home Assistant
+python3 tests/test_translations.py  # 510 Prüfungen, braucht kein Home Assistant
 ```
 
 `test_ebusd.py` spielt wortgetreue `ebusctl`-Antworten der echten Anlage gegen

@@ -142,7 +142,7 @@ class AuromaticEntity(CoordinatorEntity[AuromaticCoordinator]):
                     "model",
                     f"auroMATIC 620/3 ({description.device} @ {circuit['address']})",
                 ),
-                via_device=(DOMAIN, entry_id),
+                via_device_id=coordinator.root_device_id,
                 **_identity(coordinator, description.device),
             )
 

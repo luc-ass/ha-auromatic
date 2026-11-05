@@ -402,6 +402,24 @@ def main() -> int:
         for platform in (*PLATFORMS, "water_heater"):
             source = (ROOT / f"{platform}.py").read_text()
             check(f"{platform}: PARALLEL_UPDATES gesetzt", "PARALLEL_UPDATES" in source)
+
+        # Geräteangaben, die Home Assistant 2026.11 als veraltet führt
+        # (`_DEPRECATED_DEVICE_INFO_PARAMETERS` in helpers/device_registry.py).
+        # Sie gehen über DeviceInfo wie über async_get_or_create und lösen bei
+        # jedem Setup eine Warnung aus, bis sie mit 2027.8 bzw. 2027.9 ganz
+        # wegfallen. `via_device` war offener Punkt 14; der Test fängt auch den
+        # nächsten Fall derselben Art, bevor er im Protokoll auftaucht.
+        deprecated = {"via_device", "default_name", "default_model",
+                      "default_manufacturer", "created_at", "modified_at"}
+        for path in sorted(ROOT.glob("*.py")):
+            found = sorted(
+                f"{keyword.arg} (Zeile {node.lineno})"
+                for node in ast.walk(ast.parse(path.read_text()))
+                if isinstance(node, ast.Call)
+                for keyword in node.keywords
+                if keyword.arg in deprecated
+            )
+            check(f"{path.name}: keine veralteten Geräteangaben", not found, ", ".join(found))
     except AssertionError as err:
         print(f"\nFEHLGESCHLAGEN: {err}")
         return 1

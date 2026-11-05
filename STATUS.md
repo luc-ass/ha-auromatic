@@ -812,14 +812,17 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
 | `strings.json`, `translations/` | Alle Oberflächentexte, englisch und deutsch |
 | `icons.json` | Icons, nur wo keine `device_class` eins liefert |
 
-Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
+Ein HA-Gerät je Bus-Adresse, alle per `via_device_id` am Regler. Die ID des
+Reglers holt `async_setup_entry` vor dem Start der Plattformen und legt sie am
+Koordinator ab (`root_device_id`).
 
 ### Verifiziert
 
 - ebusd-Protokollschicht gegen wortgetreue Antwortdaten der Anlage
   (`tests/test_ebusd.py`, 69 Prüfungen).
 - Vollständigkeit von Übersetzungen und Icons gegen den Entitätsbestand
-  (`tests/test_translations.py`, 497 Prüfungen).
+  (`tests/test_translations.py`, 510 Prüfungen), dazu die Prüfung, dass kein
+  Aufruf eine von HA als veraltet geführte Geräteangabe verwendet.
 - Dataclass-Komposition der Description-Klassen (Mehrfachvererbung mit
   `frozen=True, kw_only=True`) gegen strukturgleiche Nachbauten.
 - **Bedienung in Home Assistant:** Die Integration lädt, die Betriebsart lässt
@@ -1500,7 +1503,7 @@ ohne HA-Installation.
    damit die Zahl beim nächsten Lauf mit auf dem Zettel steht, nicht als
    Aufforderung, an ihr zu drehen.
 
-14. **`via_device` ist veraltet und hört 2027.8.0 auf zu funktionieren.** Bei
+14. ~~**`via_device` ist veraltet und hört 2027.8.0 auf zu funktionieren.**~~ Bei
    jedem Setup schreibt Home Assistant dazu Warnungen ins Protokoll:
 
    > Detected that custom integration 'auromatic' calls
@@ -1524,6 +1527,35 @@ ohne HA-Installation.
    Kein Zeitdruck, aber auch nichts, was von selbst weggeht: bis dahin steht
    die Meldung bei jedem Start im Protokoll und verdeckt dort Platz für
    Warnungen, die zählen.
+
+   **Umgesetzt am 2026-11-05 in 0.3.6b1.** `__init__.py` nimmt den
+   Geräteeintrag, den `async_get_or_create` für den Regler zurückgibt, und
+   legt dessen `.id` am Koordinator ab -- als `root_device_id: str`, ohne
+   Vorgabewert, und vor `async_forward_entry_setups`. Die Kreise tragen
+   `via_device_id=coordinator.root_device_id`.
+
+   Die Bedenken zum Zeitpunkt lösen sich so auf: die ID ist keine
+   Laufzeitgröße. Home Assistant führt sie dauerhaft im Geräteregister, und
+   `async_get_or_create` findet den bestehenden Eintrag über die Kennung
+   `(DOMAIN, entry_id)` -- Neustart und Neuladen liefern dieselbe ID. Später
+   nachgelegte Entitäten (Invariante 8) hängen am Koordinator desselben
+   Setups und lesen dieselbe. Ein `ConfigEntryNotReady` bricht vor dem
+   Anlegen des Reglers ab, dann entstehen auch keine Entitäten. Löschen
+   lässt sich der Regler in der Oberfläche nicht, die Integration bietet
+   kein `async_remove_config_entry_device` an. Einen Ersatzweg für eine
+   fehlende ID gibt es deshalb bewusst nicht: rutscht die Reihenfolge je
+   weg, scheitert das Anlegen mit `AttributeError` im Protokoll, statt dass
+   Geräte still ohne Regler entstehen.
+
+   `tests/test_translations.py` prüft per `ast`, dass kein Aufruf eine der
+   Geräteangaben verwendet, die HA 2026.11 als veraltet führt (`via_device`,
+   `default_name`, `default_model`, `default_manufacturer`, `created_at`,
+   `modified_at`).
+
+   Stand vorher (0.3.5, 2026-11-05): 8 Geräte, die 7 Kreise -- Heizkreis,
+   Fußbodenheizung, Warmwasser, Zirkulation, Solar, Bedienteil, Therme --
+   alle mit `via_device_id` auf den Regler `5c00927b…`. Nach dem Einspielen
+   muss derselbe Stand herauskommen.
 15. ~~**`water_heater` nutzt veraltete Temperatur-Attribute, ab 2027.11 kaputt.**~~
    Seit Home Assistant 2026.11.0 (2026-11-04) meldet jeder Start:
 
@@ -1557,6 +1589,27 @@ ohne HA-Installation.
    `current_temperature`). Die Mindestversion in `hacs.json` steht deshalb
    jetzt auf **2026.11.0**, sonst böte HACS das Update auch Instanzen an, auf
    denen der Speicher ohne Temperatur und mit `AttributeError` dastünde.
+
+16. **`ChildDeviceInfo` für die Kreise -- geplant für 0.3.7.** Neu in HA
+   2026.11: ein „leichtgewichtiger logischer Teil eines Geräts", verknüpft
+   über `parent_device_id` (`helpers/device_registry.py`, Klasse
+   `ChildDeviceInfo`). Inhaltlich passt das auf die Kreise: Heizkreis,
+   Fußbodenheizung, Warmwasser, Zirkulation und Solar sind Teile des Reglers,
+   keine eigenen Geräte.
+
+   Zu klären, bevor es gebaut wird:
+
+   - `ChildDeviceInfo` kennt nur Kennung, Name, Bereich und Übersetzung --
+     kein Hersteller, Modell, Software- oder Hardwarestand, keine
+     Seriennummer. **Therme und Bedienteil** sind eigene Geräte am Bus und
+     tragen genau diese Angaben; sie bleiben normale Geräte mit
+     `via_device_id`. Damit gäbe es zwei Arten von Untergeräten.
+   - Die Umwandlung bestehender Geräte: HA kennt einen Weg vom normalen zum
+     Kindgerät, aber kein Umhängen eines Kindes an ein anderes Elternteil
+     („reparenting is not supported"). Zu prüfen ist, ob Entitäten,
+     `unique_id`s und Historie die Umwandlung unverändert überstehen.
+   - Ein Kindgerät darf selbst kein Elternteil sein und muss zum selben
+     Config-Entry gehören wie sein Elternteil -- beides ist hier erfüllt.
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --

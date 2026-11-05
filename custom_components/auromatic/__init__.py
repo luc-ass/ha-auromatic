@@ -82,7 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuromaticConfigEntry) ->
     await coordinator.async_read_participants()
 
     # Der Regler selbst als übergeordnetes Gerät -- die Kreise hängen per
-    # via_device daran, damit die Geräteseite die Bus-Struktur abbildet.
+    # via_device_id daran, damit die Geräteseite die Bus-Struktur abbildet.
     #
     # Seine Kenndaten stehen unter jeder seiner fünf Adressen gleich; genommen
     # wird die des Heizkreises. Der Softwarestand ist seit 0.3.2 der des
@@ -90,7 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuromaticConfigEntry) ->
     # das hier beschrieben wird, und seine Version steht in den Diagnosedaten.
     regler = coordinator.participant("hc")
     _LOGGER.debug("ebusd %s, Teilnehmer: %s", version, sorted(coordinator.participants))
-    dr.async_get(hass).async_get_or_create(
+    root = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         manufacturer="Vaillant",
@@ -100,6 +100,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuromaticConfigEntry) ->
         hw_version=regler.get("hw"),
         serial_number=regler.get("serial"),
     )
+    # Muss vor den Plattformen stehen: jede Entität -- beim Setup wie die
+    # später nachgelegten (Invariante 8) -- liest die ID beim Anlegen. Bis
+    # 0.3.5 trug jede Entität stattdessen `via_device=(DOMAIN, entry_id)`; das
+    # ist seit HA 2026.11 veraltet und fällt mit 2027.8 weg. Die ID ist bei
+    # jedem Setup dieselbe: `async_get_or_create` findet den bestehenden
+    # Eintrag über die Kennung und gibt ihn zurück.
+    coordinator.root_device_id = root.id
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
