@@ -43,7 +43,7 @@ class AuromaticWaterHeater(AuromaticEntity, WaterHeaterEntity):
     """Speichertemperatur, Sollwert und Betriebsart in einer Karte."""
 
     _attr_name = None
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     # Nur Auto, Ein und Aus -- so führt es die Bedienungsanleitung
     # (0020094390, Tab. 3.3) für Warmwasser- und Zirkulationskreis gemeinsam.
     # Das Register nähme "eco" und "low" an, weil die ebusd-Definition es als
@@ -60,12 +60,12 @@ class AuromaticWaterHeater(AuromaticEntity, WaterHeaterEntity):
     )
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         raw = self.raw_value
         return float(raw) if raw is not None else None
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         raw = self.coordinator.value("hwc", "TempDesired2")
         return float(raw) if raw is not None else None
 

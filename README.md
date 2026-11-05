@@ -22,7 +22,8 @@ kommen als Rückgabewert statt im Nichts zu verschwinden.
 - ebusd (getestet gegen 26.1) mit geladener `vaillant/*.solsy.*.csv`-Konfiguration
 - Der eBUS-Adapter akzeptiert **nur einen Client**. ebusd ist dieser Client —
   es darf keine zweite Instanz und kein Testskript parallel verbunden sein.
-- Home Assistant 2024.6 oder neuer (die Integration nutzt `entry.runtime_data`).
+- Home Assistant 2026.11 oder neuer (der Warmwasserspeicher nutzt die
+  `native_`-Temperaturattribute von `water_heater`, die es erst ab dort gibt).
 
 ## Installation
 

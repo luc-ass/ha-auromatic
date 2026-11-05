@@ -956,8 +956,9 @@ Ein HA-Gerät je Bus-Adresse, alle per `via_device` am Regler.
 
 ### Nicht verifiziert
 
-Vorausgesetzt wird **HA 2024.6+** (wegen `entry.runtime_data`); getestet auf
-**HA 2026.9.0**. Nicht durchgespielt ist der Weg über die Oberfläche selbst --
+Vorausgesetzt wird **HA 2026.11+** (wegen der `native_`-Temperaturattribute
+von `water_heater`, siehe offener Punkt 15); getestet auf **HA 2026.9.0**, die
+Umbenennung aus Punkt 15 auf **HA 2026.11.0**. Nicht durchgespielt ist der Weg über die Oberfläche selbst --
 geprüft wurde über Dienstaufrufe, die dieselben Entitätsmethoden ausführen.
 
 **`mc RoomTempOffset` hat derzeit keine Entität.** Erwartet waren 44
@@ -1516,7 +1517,7 @@ ohne HA-Installation.
    Kein Zeitdruck, aber auch nichts, was von selbst weggeht: bis dahin steht
    die Meldung bei jedem Start im Protokoll und verdeckt dort Platz für
    Warnungen, die zählen.
-15. **`water_heater` nutzt veraltete Temperatur-Attribute, ab 2027.11 kaputt.**
+15. ~~**`water_heater` nutzt veraltete Temperatur-Attribute, ab 2027.11 kaputt.**~~
    Seit Home Assistant 2026.11.0 (2026-11-04) meldet jeder Start:
 
    > custom_components.auromatic.water_heater::AuromaticWaterHeater provides
@@ -1530,6 +1531,25 @@ ohne HA-Installation.
    `_attr_target_temperature_step` (Zeile 56), `min_temp`/`max_temp` und der
    Schreibpfad über `async_set_temperature`, ob sie ebenfalls eine
    `native_`-Form brauchen.
+
+   **Erledigt am 2026-11-05.** Die drei Namen sind umbenannt. Die übrigen
+   Fragen beantwortet der Quelltext von HA 2026.11.0
+   (`components/water_heater/entity.py`, `services.py`):
+
+   - `_attr_min_temp`, `_attr_max_temp` und `_attr_target_temperature_step`
+     bleiben, wie sie sind. Eine `native_`-Form gibt es für sie nicht; HA
+     liest Grenzen und Schritt bereits als Werte in der nativen Einheit und
+     rechnet sie erst für die Anzeige um.
+   - Der Schreibpfad ist sicher: der Dienst `set_temperature` rechnet den
+     Wert in `native_temperature_unit` um, *bevor* er
+     `async_set_temperature` aufruft. Bei `TempDesired2` kommt also immer
+     °C an, auch wenn HA auf Fahrenheit steht.
+
+   Die Kehrseite: vor 2026.11 kennt `water_heater` die `native_`-Namen
+   nicht (2026.10.4 liest noch `temperature_unit` und
+   `current_temperature`). Die Mindestversion in `hacs.json` steht deshalb
+   jetzt auf **2026.11.0**, sonst böte HACS das Update auch Instanzen an, auf
+   denen der Speicher ohne Temperatur und mit `AttributeError` dastünde.
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
