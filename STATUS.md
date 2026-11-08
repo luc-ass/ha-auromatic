@@ -44,7 +44,7 @@ Stand: 2026-09-21. Planungsdokument mit Herleitung und Registerkarte:
 | `ui` | 0x15 | Bedienteil, Systemebene | `vaillant/15.ui.csv` |
 | `cc` | 0x23 | **Zirkulationskreis** | `vaillant/23.solsy.cc.csv` |
 | `hwc` | 0x25 | Warmwasser | `vaillant/25.solsy.hwc.csv` |
-| `hc` | 0x26 | Heizkreis (Radiatoren) | `vaillant/26.solsy.hc.csv` |
+| `hc` | 0x26 | Heizkreis HK1 = Heizkörper im Keller (Gym, Flur KG, Werkstatt) | `vaillant/26.solsy.hc.csv` |
 | `mc` | 0x50 | **Mischerkreis = Fußbodenheizung** | `vaillant/50.solsy.mc.csv` |
 | `sc` | 0xec | Solarkreis | `vaillant/ec.solsy.sc.csv` |
 
@@ -334,7 +334,8 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Abkühlrate danach 0,07 K/min; **ein einziger Brennerzyklus in 33 Minuten**.
   Die kurze Pumpenlaufzeit ist dabei die Folge, nicht die Ursache: der Brenner
   war nach 90 s am Sollwert, weil niemand Wärme abnahm. Die Heizkörper waren
-  vermutlich geschlossen — der Kellerkreis ist ohnehin hart abgesperrt. Der
+  vermutlich geschlossen — der Kellerkreis war damals hart abgesperrt (seit dem
+  Einzug im Oktober 2026 offen, Heizkörper mit Homematic-IP-Thermostaten). Der
   Nachweis unter Last steht damit noch aus, siehe Punkt 4.
 
   *Der Wasserdruck taugt nicht als Nachweis des Pumpenanlaufs.* 1,452–1,461 bar
@@ -374,7 +375,11 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   dasselbe mit Warmwasserbereitung, `VK` der bodenstehende Kessel. Dieses
   Gerät ist ein VC: `bai HwcTemp` meldet `circuit` (kein WW-Vorlauffühler),
   `bai StorageTemp` meldet `cutoff` (kein geräteseitiger Speicher), und der
-  Benutzer hat es am 2026-09-05 als wandhängend ohne Speicher bestätigt. Das
+  Benutzer hat es am 2026-09-05 als wandhängend ohne Speicher bestätigt.
+  **Korrektur 2026-11-08:** „ohne Speicher“ heißt nur: kein Speicher im Gerät.
+  Ein VC lädt über sein internes Vorrang-Umschaltventil einen externen
+  Speicher, hier den **Kombispeicher** der Solaranlage (Hydraulikplan 1,
+  siehe „Hydraulik vor Ort“ unten). Das
   Gerät heißt in Home Assistant deshalb seit 0.3.2 **„Therme"**.
 
   *Es ist eine **ecoTEC plus**, also ein Brennwertgerät.* Der Benutzer hat die
@@ -389,8 +394,20 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   = 54 653. Ein atmoTEC hat gar kein Gebläse (Naturzug, Strömungssicherung),
   ein turboTEC ein einstufiges — nur das Brennwertgerät regelt Gebläse und
   Gasventil gemeinsam über die Drehzahl. Dazu `bai IonisationVoltageLevel`
-  = 68,6 und `bai PartloadHcKW` = 12 gegen `PartloadHwcKW` = 23, was zu einem
-  Gerät der 24-kW-Klasse passt.
+  = 68,6 und `bai PartloadHcKW` = 12 gegen `PartloadHwcKW` = 23.
+
+  **Typenschild (abgelesen 2026-11-08): ecoTEC plus VC DE 196/3-5**,
+  Brennwertkessel, Erdgas LL (G25, 20 mbar), Serie
+  `21074800100042800001007097N5`: nach dem Schema oben Baujahr KW 48/2007,
+  Artikelnummer `0010004280` = laut Anleitung „VC DE 196/3-5 Erdgas (LL)“. Heizen 5,7–19,0 kW bei 80/60 °C,
+  5,9–19,6 bei 60/40, 6,0–20,2 bei 50/30, 6,1–20,6 bei 40/30;
+  Wärmebelastung 5,8–19,4 kW, **Speicherladung 23,0 kW** (23,5 kW
+  Belastung). Einstellbereich d.0 6–19 kW, Werk 19. Pumpe zweistufig, Vaillant
+  VPAL-4/2A (Grundfos), d.19 wählt die Stufe; internes Überströmventil
+  170–350 mbar (Werk 250). Anleitung: Installations- und Wartungsanleitung
+  ecoTEC plus VC/VCW /3-5, 0020029091_07. Die frühere Einordnung „24-kW-Klasse“
+  war falsch: die 23 kW sind die Speicherladeleistung, beim Heizen leistet das
+  Gerät höchstens 19 kW.
 
   **Der Fehlschluss, aufgehoben zur Warnung.** Hier stand bis zum 2026-09-13,
   das Gerät gehöre zur turboTEC-Reihe, hergeleitet aus 8174 Gebläsestunden
@@ -421,7 +438,8 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Weg zu stehen.
 
   *Die Heizleistung ist begrenzt.* `bai PartloadHcKW` = 12 gegen
-  `bai PartloadHwcKW` = 23: die Teillast für den Heizbetrieb steht auf 12 kW.
+  `bai PartloadHwcKW` = 23: die Teillast für den Heizbetrieb steht auf 12 von
+  19 kW.
   Das schärft den Befund des Heizversuchs — selbst mit halber Leistung war der
   Sollwert nach 90 Sekunden erreicht. Ohne Abnahme hilft auch eine kleine
   Flamme nichts.
@@ -430,6 +448,45 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Eine schnelle Aufheizrate ist deshalb eine Eigenschaft des Geräts und kein
   Befund über die Last — und an einer Sommerlast taktet sie zwangsläufig, weil
   ihr die Puffermasse fehlt.
+- **Hydraulik vor Ort (2026-11-05 und 2026-11-08).** Vom Benutzer im
+  Heizungsraum nachgesehen, mit Fotos; Herleitung und Messreihen in
+  `~/Projects/ha-organisation/docs/heizung.md` (Fotos unter
+  `docs/bilder/heizung/`).
+
+  - **Konfiguration im Regler: Hydraulikplan 1** (`ui HydraulicMap`, `hc
+    HydraulicScheme`): Wandheizgerät, ein Kollektorfeld, Kombispeicher mit
+    solarer Heizungsunterstützung, Hydraulikblock, Mischerkreis HK2 mit VF2,
+    HK1 als Brennerkreis. **Keine hydraulische Weiche.** Quelle:
+    Installationsanleitung VRS 620 (0020094391_00), Kap. 5.3.1
+  - **Hydraulikblock** unter der Therme: zwei motorische Umschaltventile,
+    keine Pumpe. Stellantriebe „SF 25E“, 230 V, 5 W. Vorlauf vermutlich
+    LP/UV1, Rücklauf mit Messingbogen vermutlich **MA** (`sc OutputMA`):
+    Rücklauf direkt zur Therme oder durch den Kombispeicher
+  - **Kombispeicher** bestätigt
+  - **TD2** (`sc SumBackflowSensor`) sitzt im Rücklauf nach der Zusammenführung
+    von Kellerkreis und FBH, also wie im Plan vor MA
+  - **VF1** (`hc SumFlowSensor`) sitzt nicht im gemeinsamen Vorlauf, sondern
+    **hinter dem Abzweig des Kellerkreises**, im Strang zum
+    FBH-Wärmetauscher. Er sieht also nur diesen Strang. Saß bis 2026-11-05 lose
+    unter der Dämmung (Einbrüche bis 1 °C), seitdem fest am Rohr
+  - **HK1 (Kellerkreis)**: Heizkörper Gym, Flur KG, Werkstatt klein und groß,
+    Homematic-IP-Thermostate, ungemischt. `bai ExtWP` und `hc Hc1PumpPort`
+    melden eine externe Heizungspumpe, wo sie sitzt, ist offen
+  - **FBH (HK2)** hängt über einen **Plattenwärmetauscher** an der Anlage.
+    Therme-Seite: Absperrventil mit Innensechskant-Spindel (10,5 Umdrehungen),
+    **seit 2026-11-08 auf 2,5 Umdrehungen offen gedrosselt**, sonst kein Ventil.
+    Voll offen nahm dieser Strang den Großteil des Wassers, der Kellerkreis
+    (vor allem Gym) bekam zu wenig, der Rücklauf kam fast ungekühlt zurück
+    (Spreizung 0,7–2 K). FBH-Seite, von unten: Wärmetauscher, **Mischer HK2
+    mit ESBE-Stellmotor** (3-Wege, Bypass aus dem FBH-Rücklauf), Vaillant-
+    Pumpengruppe mit **Grundfos ALPHA2 25-60** (AUTOadapt, eigene Pumpe),
+    darüber VF2 (`mc FlowTemp`). Der Mischer regelt also nur die FBH-Seite
+  - **FBH-Verteiler** EG (6 Kreise) und OG (4 Kreise), Stahlverteiler mit
+    automatischen Entlüftern, Regulierventilen im Rücklauf, ohne
+    Durchflussanzeiger, Stellantriebe an je einem HmIP-FALMOT-C8
+  - Am 2026-11-08 war der Anlagendruck zu niedrig (`bai WaterPressure`
+    1,37–1,41 bar), nachgefüllt auf 1,63–1,66; im Gym-Heizkörper saß ein großes
+    Luftpolster. Der Sensor zeigt rund 0,3 bar mehr als das Manometer
 - **Die Typenbezeichnung steht nicht auf dem Bus, die Seriennummer schon.**
   `scan result` liefert je Teilnehmer zwölf Spalten: Adresse, Hersteller,
   Kennung, SW, HW und die sieben Felder der Nachricht `Scan.<zz> Id`
@@ -573,7 +630,8 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
   Pumpenzyklus, und schwingt abends auf dasselbe Kellerniveau aus wie der
   Ertragsfühler (26,4 gegen 27,1 °C), während der Kollektor auf 24,7 °C fällt.
   Er ist der Sammelrücklauf der Heizung, Gegenstück zu `hc SumFlowSensor`
-  (Sammelvorlauf, 23,75 °C = `ui FlowTemp`), und tot auf Raumtemperatur, weil
+  (Sammelvorlauf, 23,75 °C = `ui FlowTemp`; **VF1 sitzt aber nicht im
+  gemeinsamen Vorlauf**, siehe „Hydraulik vor Ort“), und tot auf Raumtemperatur, weil
   der Brenner abgeschaltet ist — angeschlossen ist er (Status `ok`, ein
   abgeklemmter Fühler meldet `cutoff`). Die Oberflächennamen sind deshalb
   seit 2026-09-01 „Solarrücklauf" (`yield_sensor`) und „Sammelrücklauf"
@@ -1332,7 +1390,11 @@ ohne HA-Installation.
    definierte Last. Die Fußbodenheizung ist nicht beteiligt (`mc` bleibt aus,
    der Mischer blieb nachweislich zu), ihre alten Thermostatköpfe können also
    warten. Der abgesperrte Kellerkreis ist unkritisch, gehört aber als bekannt
-   fehlender Abnehmer ins Protokoll.
+   fehlender Abnehmer ins Protokoll. **Stand 2026-11-08:** Der Kellerkreis ist
+   offen, und am 2026-11-08 gab es erstmals echte Abnahme (alle Heizkörper KG
+   auf, FBH-Strang gedrosselt): Brenner über 16 min am Stück, Spreizung
+   8–12 K, Rücklauf 36–40 °C. Das war eine Aufheizphase, kein Dauerzustand,
+   aber ein Lauf unter Last (Daten in `ha-organisation/docs/heizung.md`).
 
    Damit der nächste Lauf die Frage selbst beantwortet, statt sie der
    Auswertung zu überlassen, gelten diese Kriterien für „es gab Abnahme":
