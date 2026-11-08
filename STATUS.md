@@ -1680,6 +1680,55 @@ ohne HA-Installation.
    **Stufe 2, 0.3.7:** die beiden fehlenden Werte fest in die Liste, alle
    Texte nach dem Display, und die ebusd-Definition als Fixture in die Tests
    -- die Optionen müssen jeden Wert der Definition abdecken.
+18. **Fehlende Werte aus der Hydraulik-Analyse vom 2026-11-08.** Angestoßen
+   aus `~/Projects/ha-organisation` (`docs/heizung.md`, Systemanalyse und
+   „VF1 nachgesehen“). Alle Werte sind über ebusd am 2026-11-08 gelesen,
+   der Wert in Klammern ist der damalige Stand. Wärmeerzeuger laut
+   Typenschild: **ecoTEC plus VC DE 196/3-5**, zweistufige Pumpe VPAL-4/2A;
+   die Anleitung (0020029091_07) ist die Quelle für die d.-Nummern.
+
+   Wichtig, im Alltag fehlend:
+
+   | Wert | ebusd | Wozu |
+   |---|---|---|
+   | Pumpe Heizkreis HK1 (Keller) | `hc Hc1PumpPort` (on), `bai ExtWP` (on, d.11) | `bai_pump` ist nur die Pumpe in der Therme |
+   | Pumpenstufe | `bai WPSecondStage` (15=on;240=off) | zeigt, ob d.19 wirkt |
+   | Ventil MA, solare Heizungsunterstützung | `sc OutputMA` (off) | Rücklauf deuten (Hydraulikplan 1) |
+   | Modulation | `bai ModulationDesired` (25) | gelieferte Leistung, Takt und Bedarf |
+   | Verbleibende Brennersperrzeit | `bai RemainingBoilerblocktime` (3 min, d.67) | Pausen zwischen den Starts |
+
+   Einstellwerte der Therme als Diagnose-Entitäten (Änderungen im Verlauf
+   sichtbar):
+
+   | Wert | ebusd | Stand | Werk | Schreiben |
+   |---|---|---|---|---|
+   | d.0 Heizungsteillast | `bai PartloadHcKW` | 12 kW | 19 kW (6–19) | `w` vorhanden |
+   | d.1 Pumpennachlauf | `bai WPPostrunTime` | 30 min | 5 min | `w` vorhanden |
+   | d.2 max. Sperrzeit | `bai BlockTimeHcMax` | 6 min | 20 min | `w` vorhanden |
+   | d.18 Pumpenbetriebsart | `bai HcPumpMode` | `post_run` | 0 | nur `r` |
+   | d.19 Betriebsart 2-stufige Pumpe | `bai SecondPumpMode` | 2 (bis 08.11. 3) | 2 | nur `r` in ebusd |
+
+   **d.19 schreiben** geht per `hex 08b509040e0b04XX` (XX = 00–03), am
+   2026-11-08 dreimal geschrieben und gegengelesen, Antwort `00`. Abgeleitet
+   aus dem Muster der offiziellen Schreibnachrichten (`0d<reg>` lesen,
+   `0e<reg>` schreiben, wie bei d.0/d.1/d.2), für d.19 selbst nicht
+   dokumentiert. `WPSecondStage` folgt nicht sofort, sondern erst beim
+   nächsten Wechsel des Betriebszustands. Als `select` nur mit fester
+   Werteliste 0–3, eigener Schreibdefinition und Gegenlesen; Invariante 2
+   (Schreibname = Lesename) gilt dann auch hier.
+
+   Erst klären:
+   - `bai PrEnergySumHc1` / `PrEnergySumHwc1` / `PrEnergyCountHc1`: vermutlich
+     Energiezähler Heizen/Warmwasser (Gas getrennt nach Zweck). Rohwerte
+     4294967181 / 1232244332 / 23424821 sehen nach falscher Dekodierung oder
+     Überlauf aus, Einheit offen
+   - `sensor.heizung_kg_heizungskeller_regler_sammelvorlauf_temp` (VF1) sitzt
+     in dieser Anlage nicht im gemeinsamen Vorlauf, sondern hinter dem Abzweig
+     des Kellerkreises im Strang zum FBH-Wärmetauscher. Beschreibung und Name
+     („Sammelvorlauf“) prüfen
+   - `binary_sensor.solar_kg_heizungskeller_kollektorschutz` stand am
+     2026-11-08 bei 23 °C Kollektor auf `on`: Funktion aktiviert oder
+     falsche Zuordnung?
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
