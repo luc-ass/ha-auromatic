@@ -42,6 +42,15 @@
       },
       "sol_protection_hysteresis": {
         "default": "mdi:arrow-collapse-vertical"
+      },
+      "modulation_desired": {
+        "default": "mdi:fire"
+      },
+      "pump_mode": {
+        "default": "mdi:pump"
+      },
+      "second_pump_mode": {
+        "default": "mdi:pump"
       }
     },
     "binary_sensor": {
@@ -56,6 +65,9 @@
       },
       "collector_protection": {
         "default": "mdi:weather-sunny-alert"
+      },
+      "heating_support_valve": {
+        "default": "mdi:valve"
       }
     },
     "select": {

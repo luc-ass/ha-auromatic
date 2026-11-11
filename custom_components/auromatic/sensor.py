@@ -14,8 +14,10 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
+    PERCENTAGE,
     EntityCategory,
     UnitOfEnergy,
+    UnitOfPower,
     UnitOfPressure,
     UnitOfTemperature,
     UnitOfTime,
@@ -178,6 +180,79 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         key="ignition_failures", circuit="bai", message="DeactivationsIFC",
         suggested_display_precision=0,
         state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        # Der Modulationsgrad, den die Feuerungsautomatik anstrebt -- ein
+        # Sollwert, keine gemessene Leistung, deshalb auch der Name. Zusammen
+        # mit der Flamme zeigt er, ob der Brenner unten an der Teillast klebt
+        # und deshalb taktet (offener Punkt 18, Hydraulik-Analyse
+        # 2026-11-08).
+        key="modulation_desired", circuit="bai", message="ModulationDesired",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+    ),
+    AuromaticSensorDescription(
+        # d.67: wie lange der Brenner nach einem Heizbetrieb noch gesperrt
+        # ist. Die Höchstdauer setzt d.2 (`block_time_hc_max`). Der Abruf
+        # kommt nur alle paar Minuten, eine Sperrzeit von 6 Minuten sieht man
+        # also grob -- genug, um Pausen zwischen den Starts zuzuordnen.
+        key="remaining_block_time", circuit="bai",
+        message="RemainingBoilerblocktime",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+    ),
+    # Einstellwerte der Therme. Die Therme zeigt sie nur als d.-Nummer, und
+    # genau unter der sucht man sie dort -- die Nummer steht deshalb im Namen.
+    # Nur lesend: d.0, d.1 und d.2 sind in ebusd zwar `r;w`, aber eine
+    # Einstellung, die man einmal an der Therme setzt, braucht keinen Regler
+    # in Home Assistant. Diagnose-Entitäten ohne state_class, damit eine
+    # Verstellung im Verlauf steht, ohne in die Langzeitstatistik zu gehen.
+    AuromaticSensorDescription(
+        # d.0. Am 2026-11-08 12 kW bei 19 kW Höchstleistung (Typenschild
+        # VC 196/3-5, Werk 19).
+        key="partload_hc", circuit="bai", message="PartloadHcKW",
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        # d.1, Werk 5 min. Am 2026-11-08 30 min.
+        key="pump_postrun_time", circuit="bai", message="WPPostrunTime",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        # d.2, Werk 20 min. Am 2026-11-08 6 min.
+        key="block_time_hc_max", circuit="bai", message="BlockTimeHcMax",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        # d.18. Die Werteliste ist die der ebusd-Definition
+        # (`0=post_run;1=permanent;2=winter;3=eco`).
+        key="pump_mode", circuit="bai", message="HcPumpMode",
+        device_class=SensorDeviceClass.ENUM,
+        options=["post_run", "permanent", "winter", "eco"],
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    AuromaticSensorDescription(
+        # d.19, Werk 2. ebusd hat für dieses Register keine Werteliste und
+        # liefert die nackte Zahl 0-3 -- dieselbe, die die Therme anzeigt.
+        # Was die Stufen bedeuten, steht in STATUS.md (offener Punkt 18); als
+        # ENUM mit eigenen Texten wäre es eine Beschriftung, die es am Gerät
+        # nicht gibt. Geschrieben wird es nicht: ebusd kennt dafür keine
+        # Schreibnachricht.
+        key="second_pump_mode", circuit="bai", message="SecondPumpMode",
+        suggested_display_precision=0,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # --- Heizkreis (0x26) ---------------------------------------------------
@@ -388,7 +463,15 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         key="system_mode", circuit="ui", device_circuit=ROOT_DEVICE,
         message="SystemModeStream1",
         device_class=SensorDeviceClass.ENUM,
-        options=["heat", "off", "water", "cool"],
+        # Alle sechs Werte der ebusd-Definition, in ihrer Reihenfolge
+        # (`0=off;1=heat;2=cool;3=water;4=waterduringheat;5=waterduringcool`).
+        # Bis 0.3.7 fehlten die beiden letzten, und `waterduringheat` kommt
+        # an dieser Anlage zu jeder Warmwasserladung in der Heizzeit (offener
+        # Punkt 17). tests/test_ebusd.py hält die Liste gegen die Definition.
+        options=[
+            "off", "heat", "cool", "water", "waterduringheat",
+            "waterduringcool",
+        ],
     ),
     AuromaticSensorDescription(
         # Der Fühler sitzt im Heizungsraum -- als Führungsgröße für das Haus
@@ -490,7 +573,7 @@ class AuromaticSensor(AuromaticEntity, SensorEntity):
     # Optionsliste stehen. Home Assistant weist einen Zustand außerhalb der
     # Liste mit ValueError ab -- bei jedem Abruf, und der Sensor bleibt dabei
     # still auf dem alten Wert stehen. So geschehen mit `waterduringheat` im
-    # Systemzustand: 354 Fehler in drei Tagen, bis 0.3.7 (offener Punkt 17).
+    # Systemzustand: 354 Fehler in drei Tagen, bis 0.3.7b1 (offener Punkt 17).
     # Stattdessen wird der Rohwert angezeigt, die Liste wächst um ihn, und
     # das Protokoll bekommt genau eine Warnung je Sensor und Wert. Ohne
     # Übersetzung zeigt die Oberfläche den Rohwert -- sichtbar falsch statt

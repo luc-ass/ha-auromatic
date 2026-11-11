@@ -124,6 +124,15 @@ BINARY_SENSORS: tuple[AuromaticBinaryDescription, ...] = (
         device_class=BinarySensorDeviceClass.PROBLEM, is_on_fn=_has_error,
     ),
     AuromaticBinaryDescription(
+        # Der Pumpenausgang HK1-P des Reglers. `bai_pump` ist nur die Pumpe
+        # in der Therme; ob der Kellerkreis Wasser bekommt, steht hier.
+        # `bai ExtWP` (d.11, "ext. Heizungspumpe") meldet denselben Zustand
+        # aus Sicht der Therme und bleibt deshalb draußen -- ein Platz in der
+        # Warteschlange für dieselbe Aussage wäre einer zu viel.
+        key="pump", translation_key="circuit_pump", circuit="hc",
+        message="Hc1PumpPort", device_class=BinarySensorDeviceClass.RUNNING,
+    ),
+    AuromaticBinaryDescription(
         key="pump", circuit="sc", message="SolCollPumpED1",
         device_class=BinarySensorDeviceClass.RUNNING, is_on_fn=_is_running,
     ),
@@ -135,6 +144,16 @@ BINARY_SENSORS: tuple[AuromaticBinaryDescription, ...] = (
         # zeitgleich auf `on`.
         key="circulation_pump", circuit="cc", source_circuit="hwc",
         message="CirPump2", device_class=BinarySensorDeviceClass.RUNNING,
+    ),
+    AuromaticBinaryDescription(
+        # Ausgang MA, die 3. Differenzregelung: `on`, wenn TD1 (Speichermitte)
+        # um die Einschaltdifferenz aus Menü C5 wärmer ist als TD2 (Rücklauf).
+        # Das Ventil führt den Heizungsrücklauf dann durch den Kombispeicher
+        # (Hydraulikplan 1). Das Bedienteil zeigt den Zustand nirgends an;
+        # der Name ist der aus der Legende zu Hydraulikplan 1 der
+        # Installationsanleitung VRS 620: "MA  3-Wege-Ventil
+        # Heizungsunterstützung".
+        key="heating_support_valve", circuit="sc", message="OutputMA",
     ),
     AuromaticBinaryDescription(
         key="frost_protection", circuit="sc", message="FrostProtectionEnabled",

@@ -17,6 +17,7 @@ deklariert.
 from __future__ import annotations
 
 import ast
+import csv
 import importlib.util
 import json
 import pathlib
@@ -38,6 +39,21 @@ read_maxage = set(poll_module.READ_MAXAGE)
 # Plattform -> Modul. water_heater fehlt bewusst: seine Entität ist das
 # Hauptmerkmal des Geräts und trägt deshalb keinen eigenen Namen.
 PLATFORMS = ("sensor", "binary_sensor", "select", "number")
+
+# Die ebusd-Definitionen der Enum-Sensoren, wortgetreu aus `ebusctl find -f`
+# an der Anlage (2026-11-05 und 2026-11-11). Die Optionsliste muss jeden Wert
+# der Werteliste kennen, in derselben Reihenfolge: fehlt einer, weist Home
+# Assistant ihn ab, und der Sensor bleibt still auf dem alten Wert stehen. So
+# geschehen mit `waterduringheat` (offener Punkt 17).
+ENUM_DEFINITIONS = {
+    "system_mode": 'r1,ui,SystemModeStream1,SystemModeStream1,,15,b509,0d6e00,'
+                   'value,s,UCH,0=off;1=heat;2=cool;3=water;4=waterduringheat;'
+                   '5=waterduringcool,,"Off=0, Heating=1, Cooling=2, Dhw=3, '
+                   'DhwDuringCH=4, DhwDuringCooling=5"',
+    "pump_mode": "r,bai,HcPumpMode,d.18 Pumpenbetriebsart,,08,b509,0d4904,value,"
+                 "s,UCH,0=post_run;1=permanent;2=winter;3=eco,,"
+                 "Pumpenbetriebsart für den Heizbetrieb",
+}
 
 checks = 0
 
@@ -402,6 +418,13 @@ def main() -> int:
         for platform in (*PLATFORMS, "water_heater"):
             source = (ROOT / f"{platform}.py").read_text()
             check(f"{platform}: PARALLEL_UPDATES gesetzt", "PARALLEL_UPDATES" in source)
+
+        sensors = descriptions("sensor")
+        for key, line in ENUM_DEFINITIONS.items():
+            values = next(csv.reader([line]))[11]
+            expected = [item.split("=", 1)[1] for item in values.split(";")]
+            check(f"sensor.{key}: Optionen = ebusd-Werteliste",
+                  sensors[key]["options"] == expected, ", ".join(expected))
 
         # Geräteangaben, die Home Assistant 2026.11 als veraltet führt
         # (`_DEPRECATED_DEVICE_INFO_PARAMETERS` in helpers/device_registry.py).

@@ -32,9 +32,9 @@ Daraus die drei Stufen unten:
 * `POLL_SETTING` (9) -- Sollwerte, Konfiguration und Zählerstände. Sie ändern
   sich selten, und niemand wartet auf sie.
 
-Mit 19 Registern auf 1, fünf auf 3 und 29 auf 9 ergeben sich 23,89 Anteile:
-ein Messwert kommt rund alle 2,4 Minuten an die Reihe, ein Bedienelement alle
-7,2, ein Sollwert alle 21,5 -- bei unveränderter Buslast gegenüber den 156
+Mit 23 Registern auf 1, fünf auf 3 und 34 auf 9 ergeben sich 28,44 Anteile:
+ein Messwert kommt rund alle 2,8 Minuten an die Reihe, ein Bedienelement alle
+8,5, ein Sollwert alle 25,6 -- bei unveränderter Buslast gegenüber den 156
 Nachrichten von vorher.
 
 Nachgemessen an einem vollen Tag (2026-09-02, 16 h Laufzeit, damals noch
@@ -57,6 +57,15 @@ Am 2026-09-13 kamen zwei Register auf Stufe 9 dazu (`bai HcUnderHundredStarts`
 und `ui ServicePeriod`), von 23,67 auf 23,89 Anteile: ein Messwert kommt
 statt alle 142 nun alle 143 Sekunden dran. Eine Sekunde für einen Zähler, der
 sich sonst nur alle hundert Brennerstarts rührt, und für den Wartungstermin.
+
+Mit 0.3.8 kamen vier Register auf Stufe 1 und fünf auf Stufe 9 dazu, aus der
+Hydraulik-Analyse vom 2026-11-08 (offener Punkt 18): Pumpe HK1, Ventil MA,
+Modulationssollwert und Restsperrzeit des Brenners, dazu die Einstellwerte
+d.0, d.1, d.2, d.18 und d.19 der Therme. Von 23,89 auf 28,44 Anteile, ein
+Messwert kommt statt alle 143 nun alle 171 Sekunden dran. Das ist der teuerste
+Zuwachs bisher, und er ist bewusst bezahlt: ohne Pumpe HK1 und Ventil MA ist
+der Rücklauf nicht zu deuten, und ohne Modulation und Sperrzeit nicht, warum
+der Brenner taktet.
 
 **Der Poll-Satz muss vollständig sein.** Steht ein Register hier nicht drin,
 holt ebusd es nicht mehr vom Bus, und `find` liefert bis in alle Ewigkeit den
@@ -223,6 +232,20 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         "HcPumpStarts": POLL_SETTING,
         "HoursTillService": POLL_SETTING,
         "DeactivationsIFC": POLL_SETTING,
+        # Aus der Hydraulik-Analyse vom 2026-11-08 (offener Punkt 18): der
+        # Modulationssollwert und die Restsperrzeit erklären, warum der
+        # Brenner gerade läuft oder pausiert, und das ändert sich in Minuten.
+        "ModulationDesired": POLL_MEASURED,
+        "RemainingBoilerblocktime": POLL_MEASURED,
+        # Die Einstellwerte d.0, d.1, d.2, d.18 und d.19. Sie ändern sich nur,
+        # wenn jemand an der Therme dreht. Auf Stufe 9 statt in READ_MAXAGE,
+        # aus dem Grund, der dort steht: ein Platz in der Warteschlange kostet
+        # keine einzige zusätzliche Anfrage.
+        "PartloadHcKW": POLL_SETTING,
+        "WPPostrunTime": POLL_SETTING,
+        "BlockTimeHcMax": POLL_SETTING,
+        "HcPumpMode": POLL_SETTING,
+        "SecondPumpMode": POLL_SETTING,
         # `Errorhistory` fehlt hier mit Absicht: die Nachricht trägt ein Feld
         # im Master-Teil (den Index des Eintrags) und lässt sich deshalb nicht
         # anmelden -- `read -p 9 -c bai Errorhistory` antwortet mit
@@ -238,6 +261,8 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         "FlowTempDesired": POLL_MEASURED,
         # Eine auflaufende Störung soll nicht zwanzig Minuten brauchen.
         "Currenterror": POLL_MEASURED,
+        # Die Pumpe des Kellerkreises (HK1-P). Sie schaltet in Minuten.
+        "Hc1PumpPort": POLL_MEASURED,
         "TempDesired": POLL_SETTING,
         "TempDesiredLow": POLL_SETTING,
         "HeatingCurve": POLL_SETTING,
@@ -284,6 +309,9 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         "YieldSensor": POLL_MEASURED,
         # Die Kollektorpumpe schaltet in Minuten, nicht in Stunden.
         "SolCollPumpED1": POLL_MEASURED,
+        # Ausgang MA, das Ventil der Heizungsunterstützung. Es schaltet nach
+        # Temperaturdifferenz, also jederzeit.
+        "OutputMA": POLL_MEASURED,
         # Eine Einstellung, kein Zustand. `SolProtection` stand vom
         # 2026-09-01 bis 2026-09-02 durchgehend auf `on` -- über 27 Stunden,
         # bei Kollektortemperaturen von 14 °C nachts bis 89 °C mittags, gegen

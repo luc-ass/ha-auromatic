@@ -57,6 +57,33 @@
       "ignition_failures": {
         "name": "Ignition failures"
       },
+      "modulation_desired": {
+        "name": "Desired modulation"
+      },
+      "remaining_block_time": {
+        "name": "Remaining burner anti-cycling time (d.67)"
+      },
+      "partload_hc": {
+        "name": "Heating partial load (d.0)"
+      },
+      "pump_postrun_time": {
+        "name": "Pump overrun time (d.1)"
+      },
+      "block_time_hc_max": {
+        "name": "Maximum burner anti-cycling time (d.2)"
+      },
+      "pump_mode": {
+        "name": "Pump operating mode (d.18)",
+        "state": {
+          "post_run": "Overrun",
+          "permanent": "Continuous",
+          "winter": "Winter",
+          "eco": "Eco"
+        }
+      },
+      "second_pump_mode": {
+        "name": "Two-stage pump operating mode (d.19)"
+      },
       "outside_temp": {
         "name": "Outside temperature"
       },
@@ -143,10 +170,12 @@
       "system_mode": {
         "name": "System state",
         "state": {
-          "heat": "Heating",
           "off": "Off",
-          "water": "Hot water",
-          "cool": "Cooling"
+          "heat": "Heating",
+          "cool": "Cooling",
+          "water": "Domestic hot water",
+          "waterduringheat": "Domestic hot water during heating",
+          "waterduringcool": "Domestic hot water during cooling"
         }
       },
       "controller_room_temp": {
@@ -172,6 +201,9 @@
       "boiler_pump": {
         "name": "Heating pump"
       },
+      "circuit_pump": {
+        "name": "Pump"
+      },
       "heat_release": {
         "name": "Heat release"
       },
@@ -180,6 +212,9 @@
       },
       "pump": {
         "name": "Collector pump"
+      },
+      "heating_support_valve": {
+        "name": "Heating support valve"
       },
       "circulation_pump": {
         "name": "Pump"

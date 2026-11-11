@@ -57,6 +57,33 @@
       "ignition_failures": {
         "name": "Zündfehler"
       },
+      "modulation_desired": {
+        "name": "Modulationssollwert"
+      },
+      "remaining_block_time": {
+        "name": "Verbleibende Brennersperrzeit (d.67)"
+      },
+      "partload_hc": {
+        "name": "Heizungsteillast (d.0)"
+      },
+      "pump_postrun_time": {
+        "name": "Pumpennachlaufzeit (d.1)"
+      },
+      "block_time_hc_max": {
+        "name": "Maximale Brennersperrzeit (d.2)"
+      },
+      "pump_mode": {
+        "name": "Pumpenbetriebsart (d.18)",
+        "state": {
+          "post_run": "Nachlauf",
+          "permanent": "Durchgehend",
+          "winter": "Winter",
+          "eco": "Eco"
+        }
+      },
+      "second_pump_mode": {
+        "name": "Betriebsart 2-stufige Pumpe (d.19)"
+      },
       "outside_temp": {
         "name": "Außentemperatur"
       },
@@ -143,10 +170,12 @@
       "system_mode": {
         "name": "Systemzustand",
         "state": {
-          "heat": "Heizen",
           "off": "Aus",
+          "heat": "Heizbetrieb",
+          "cool": "Kühlbetrieb",
           "water": "Warmwasser",
-          "cool": "Kühlen"
+          "waterduringheat": "Warmwasser",
+          "waterduringcool": "Warmwasser"
         }
       },
       "controller_room_temp": {
@@ -172,6 +201,9 @@
       "boiler_pump": {
         "name": "Heizungspumpe"
       },
+      "circuit_pump": {
+        "name": "Pumpe"
+      },
       "heat_release": {
         "name": "Heizfreigabe"
       },
@@ -180,6 +212,9 @@
       },
       "pump": {
         "name": "Kollektorpumpe"
+      },
+      "heating_support_valve": {
+        "name": "Ventil Heizungsunterstützung"
       },
       "circulation_pump": {
         "name": "Pumpe"

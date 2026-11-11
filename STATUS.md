@@ -861,8 +861,8 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
 | `poll.py` | Welche 40 Register ebusd aktiv vom Bus holen soll, in drei Prioritäten |
 | `entity.py` | `CircuitMixin` + Basisklasse, Gerätezuordnung per `via_device` |
 | `config_flow.py` | Einrichtung inkl. Adress-Suche, Options-Flow für das Intervall |
-| `sensor.py` | Temperaturen, Erträge, Laufzeiten, Systemzustand, Solar-Grenzwerte |
-| `binary_sensor.py` | Störung, Kollektor- und Zirkulationspumpe, Frost- und Kollektorschutz |
+| `sensor.py` | Temperaturen, Erträge, Laufzeiten, Systemzustand, Solar-Grenzwerte, Modulation und Einstellwerte der Therme |
+| `binary_sensor.py` | Störung, Pumpen (Therme, HK1, Kollektor, Zirkulation), Ventil MA, Frost- und Kollektorschutz |
 | `select.py` | **Betriebsart** für `hc`, `mc` und `cc` — der zentrale Steuerhebel |
 | `number.py` | Raumsollwerte Tag/Absenkung, Heizkurve, Solarhysterese |
 | `water_heater.py` | Speicher: Ist, Soll, Betriebsart |
@@ -879,7 +879,7 @@ Koordinator ab (`root_device_id`).
 - ebusd-Protokollschicht gegen wortgetreue Antwortdaten der Anlage
   (`tests/test_ebusd.py`, 69 Prüfungen).
 - Vollständigkeit von Übersetzungen und Icons gegen den Entitätsbestand
-  (`tests/test_translations.py`, 510 Prüfungen), dazu die Prüfung, dass kein
+  (`tests/test_translations.py`, 586 Prüfungen), dazu die Prüfung, dass kein
   Aufruf eine von HA als veraltet geführte Geräteangabe verwendet.
 - Dataclass-Komposition der Description-Klassen (Mehrfachvererbung mit
   `frozen=True, kw_only=True`) gegen strukturgleiche Nachbauten.
@@ -1700,7 +1700,8 @@ ohne HA-Installation.
    Ein Grund, das wieder aufzunehmen, wäre eine Veraltung von
    `via_device_id` für Teile desselben Geräts -- nicht das Angebot allein.
 
-17. **Systemzustand kennt nur vier von sechs Werten.** Gefunden am 2026-11-05
+17. ~~**Systemzustand kennt nur vier von sechs Werten.**~~ Umgesetzt in
+   0.3.8b1 (Stufe 2 ist von 0.3.7 dorthin gewandert). Gefunden am 2026-11-05
    im Protokoll von HA 2026.11.0, 354-mal zwischen dem 2026-11-01 und dem
    2026-11-03 (das Protokoll reicht nicht weiter zurück):
 
@@ -1739,9 +1740,33 @@ ohne HA-Installation.
    ausprobiert (Probelauf mit dem echten `SensorEntity.state`): kein
    ValueError, Rohwert sichtbar, eine Warnung je neuem Wert.
 
-   **Stufe 2, 0.3.7:** die beiden fehlenden Werte fest in die Liste, alle
-   Texte nach dem Display, und die ebusd-Definition als Fixture in die Tests
-   -- die Optionen müssen jeden Wert der Definition abdecken.
+   **Stufe 2, 0.3.8b1:** alle sechs Werte in der Reihenfolge der Definition
+   fest in der Liste, und die Definition steht wortgetreu als Fixture in
+   `tests/test_translations.py` (`ENUM_DEFINITIONS`) -- die Optionen müssen
+   ihrer Werteliste gleichen, sonst schlägt der Test an. Dasselbe gilt für
+   den neuen Enum-Sensor d.18.
+
+   Am Display abgelesen am **2026-11-11** während der Ladung, die ebusd ab
+   12:03 als `waterduringheat` meldete: **„Warmwasser"**. Dafür wurde das Warmwasser-Zeitfenster am Mittwoch per
+   `write -c hwc Timer_Wednesday` von 09:30 auf 13:00 verlängert (Speicher
+   33,6 °C gegen 50 °C Soll); um 12:03 meldete ebusd `waterduringheat` bei
+   brennender Flamme. Um 12:11 zurückgestellt. Achtung beim Nachmachen: die
+   Schreibnachricht trägt die Tagesauswahl mit, und `selected` setzt sie für
+   **alle** Wochentage auf `selected` -- zurück auf `Mo_Fr` schreiben.
+
+   Die Texte damit:
+
+   | Wert | Text | Herkunft |
+   |---|---|---|
+   | `heat` | Heizbetrieb | Display 2026-11-05 |
+   | `waterduringheat` | Warmwasser | Display 2026-11-11 |
+   | `water` | Warmwasser | nicht abgelesen, kommt erst im Sommer -- gleicher Text vermutet |
+   | `off` | Aus | nicht abgelesen |
+   | `cool`, `waterduringcool` | Kühlbetrieb, Warmwasser | nach dem Muster, kann diese Anlage nicht zeigen |
+
+   Zwei Zustände tragen damit denselben Text, und das ist gewollt: so steht
+   es am Regler. Unterscheiden lassen sie sich am Rohzustand, etwa in einer
+   Automation.
 18. **Fehlende Werte aus der Hydraulik-Analyse vom 2026-11-08.** Angestoßen
    aus `~/Projects/ha-organisation` (`docs/heizung.md`, Systemanalyse und
    „VF1 nachgesehen“). Alle Werte sind über ebusd am 2026-11-08 gelesen,
@@ -1791,6 +1816,60 @@ ohne HA-Installation.
    - `binary_sensor.solar_kg_heizungskeller_kollektorschutz` stand am
      2026-11-08 bei 23 °C Kollektor auf `on`: Funktion aktiviert oder
      falsche Zuordnung?
+
+   **Umgesetzt in 0.3.8b1** (am 2026-11-11 mit dem Benutzer abgestimmt, alle
+   Register an dem Tag erneut gelesen):
+
+   - Binärsensoren *Pumpe* am Heizkreis (`hc Hc1PumpPort`, der Ausgang HK1-P)
+     und *Ventil Heizungsunterstützung* am Solarkreis (`sc OutputMA`), beide
+     Stufe 1. `bai ExtWP` bleibt draußen, es meldet dieselbe Pumpe aus Sicht
+     der Therme. Den Namen für MA zeigt das Bedienteil nirgends an; er stammt
+     aus der Legende zu Hydraulikplan 1 der Installationsanleitung VRS 620
+     („MA  3-Wege-Ventil Heizungsunterstützung"). Schaltlogik: 3.
+     Differenzregelung, MA an, wenn TD1 > TD2 + Einschaltdifferenz (Menü C5,
+     hier 7 K, aus bei 3 K)
+   - Sensoren *Modulationssollwert* (%) und *Verbleibende Brennersperrzeit
+     (d.67)* an der Therme, beide Stufe 1
+   - Die fünf Einstellwerte d.0, d.1, d.2, d.18, d.19 als Diagnose-Sensoren,
+     **nur lesend**, Stufe 9 (nicht `READ_MAXAGE`: dort kostet jeder Abruf
+     eine zusätzliche Anfrage, siehe `poll.py`). Die d.-Nummer steht im
+     Namen, weil die Therme sie nur unter ihr zeigt. Die Texte für d.18
+     („Nachlauf", „Durchgehend", „Winter", „Eco") sind übersetzt aus der
+     ebusd-Werteliste und **nicht** gegen die Anleitung 0020029091 geprüft,
+     die hier nicht vorliegt
+   - Poll-Satz von 23,89 auf 28,44 Anteile, ein Messwert alle 171 statt 143 s
+
+   Bewusst **nicht** umgesetzt:
+
+   - **d.19 schreiben.** Der Hex-Weg ist am Gerät abgeleitet, nicht
+     dokumentiert, und ebusd hat keine Schreibdefinition dafür -- die
+     Integration bräuchte einen eigenen Pfad an ebusd vorbei, und Invariante 2
+     hätte nichts mehr, woran sie greift. Eine Einstellung, die einmal an der
+     Therme gesetzt wird, rechtfertigt das nicht. Aus demselben Grund bleiben
+     d.0, d.1, d.2 trotz `r;w` nur lesend
+   - **`bai WPSecondStage`.** Die Werteliste der Definition stimmt an dieser
+     Therme nicht: am 2026-11-11 kam roh `0x01` bei brennender Flamme
+     (`find -h`: `3108b509030ded00 / 0101`), ebusd zeigt dann die Zahl `1`.
+     Am 2026-11-08 kamen noch `on`/`off`. Erst beobachten, welche Rohwerte
+     auftreten
+   - **`PrEnergy*`.** `PrEnergySumHc1` = 4294967181 = 0xFFFFFF8D, als
+     vorzeichenbehafteter Wert −115: das sieht nach einem ungesetzten oder
+     ungültigen Zähler aus. `PrEnergySumHwc1` stieg vom 2026-11-08 bis
+     2026-11-11 von 1 232 244 332 auf 1 233 798 749, `PrEnergyCountHc1` stand
+     still (23 424 821), `PrEnergyCountHwc1` = 2 300 175. Einheit weiter offen
+
+   Geklärt:
+
+   - **Kollektorschutz `on`:** keine falsche Zuordnung. `sc SolProtection`
+     ist die Freigabe der Schutzfunktion, kein Zustand -- belegt seit dem
+     2026-09-02 (siehe „`sc SolProtection` ist eine Einstellung" oben)
+   - **Name „Sammelvorlauf":** die Reglerbeschriftung für VF1 ist
+     **„Sammlertemp. IST"** (Menü C8 Wärmeerzeuger -- Information, Tab. 7.19:
+     „zeigt die Temperatur des Sensors VF1 (in der hydraulischen Weiche)").
+     Der Regler geht also selbst von einem Sammelpunkt aus; dass VF1 hier
+     hinter dem Abzweig des Kellerkreises sitzt, ist eine Eigenheit der
+     Verrohrung, keine falsche Beschriftung. Der Name bleibt, bis das
+     Display etwas anderes zeigt
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --
