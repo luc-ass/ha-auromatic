@@ -84,9 +84,9 @@ und der Solarertrag steht beim Solar, obwohl ihn das Bedienteil zählt.
 | `bai` | 0x08 | Kessel | Wasserdruck, Flamme, Vorlauf und Rücklauf, Heizungspumpe, Wärmeanforderung des Reglers, Modulationssollwert, Restsperrzeit, Störung, Betriebsstunden und Schaltspiele, Einstellwerte d.0/d.1/d.2/d.18/d.19 |
 | `ui` | 0x15 | Bedienteil | Raumfühler Heizungsraum |
 | `cc` | 0x23 | Zirkulation | Betriebsart der Zirkulationspumpe, Pumpenzustand |
-| `hwc` | 0x25 | Warmwasser | `water_heater` mit Speichertemperatur, Sollwert, Betriebsart |
+| `hwc` | 0x25 | Warmwasser | `water_heater` mit Speichertemperatur, Sollwert, Betriebsart; Schalter „Einmalige Speicherladung“ |
 | `hc` | 0x26 | Heizkreis | Betriebsart, Raumsollwerte, Heizkurve, Vorlaufsollwert, Pumpe |
-| `mc` | 0x50 | Fußbodenheizung | Betriebsart, Raumsollwerte, Heizkurve, Vorlauftemperatur |
+| `mc` | 0x50 | Fußbodenheizung | Betriebsart, Raumsollwerte, Heizkurve, Vorlauftemperatur, Mischer, Pumpe |
 | `sc` | 0xec | Solar | Kollektor- und Speicherfühler, Solarertrag, Pumpenlaufzeit, Ventil Heizungsunterstützung (MA), Schaltdifferenzen, Schutz- und Auslegungswerte |
 
 ## Wie mit den Eigenheiten von ebusd umgegangen wird
@@ -155,8 +155,8 @@ aber nie bei ebusd angemeldet wird.
 ## Neue Version veröffentlichen
 
 HACS bietet den Anwendern die GitHub-*Releases* an. Ein Release braucht deshalb
-zweierlei, und zwar gleichlautend: das Tag (`v0.3.8b1`) und das Feld `version` in
-`custom_components/auromatic/manifest.json` (`0.3.8b1`). Weichen sie voneinander
+zweierlei, und zwar gleichlautend: das Tag (`v0.3.8b2`) und das Feld `version` in
+`custom_components/auromatic/manifest.json` (`0.3.8b2`). Weichen sie voneinander
 ab, lädt HACS zwar die Dateien, meldet aber weiter die alte Version als
 installiert und bietet dasselbe Update immer wieder an.
 

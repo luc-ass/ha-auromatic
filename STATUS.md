@@ -861,11 +861,12 @@ sieht ein Bitfehler auf dem Bus aus. Unkritisch, und nicht mehr nur vermutet.
 | `poll.py` | Welche 40 Register ebusd aktiv vom Bus holen soll, in drei Prioritäten |
 | `entity.py` | `CircuitMixin` + Basisklasse, Gerätezuordnung per `via_device` |
 | `config_flow.py` | Einrichtung inkl. Adress-Suche, Options-Flow für das Intervall |
-| `sensor.py` | Temperaturen, Erträge, Laufzeiten, Systemzustand, Solar-Grenzwerte, Modulation und Einstellwerte der Therme |
-| `binary_sensor.py` | Störung, Pumpen (Therme, HK1, Kollektor, Zirkulation), Ventil MA, Frost- und Kollektorschutz |
+| `sensor.py` | Temperaturen, Erträge, Laufzeiten, Systemzustand, Solar-Grenzwerte, Modulation und Einstellwerte der Therme, Mischerbefehl und -einschaltdauer |
+| `binary_sensor.py` | Störung, Pumpen (Therme, HK1, HK2, Kollektor, Zirkulation), Ventil MA, Frost- und Kollektorschutz |
 | `select.py` | **Betriebsart** für `hc`, `mc` und `cc` — der zentrale Steuerhebel |
 | `number.py` | Raumsollwerte Tag/Absenkung, Heizkurve, Solarhysterese |
 | `water_heater.py` | Speicher: Ist, Soll, Betriebsart |
+| `switch.py` | Einmalige Speicherladung, über die festen Telegramme aus `const.BROADCASTS` |
 | `diagnostics.py` | Vollständiger Registerbestand plus `ebusctl info`, Host redigiert |
 | `strings.json`, `translations/` | Alle Oberflächentexte, englisch und deutsch |
 | `icons.json` | Icons, nur wo keine `device_class` eins liefert |
@@ -879,7 +880,7 @@ Koordinator ab (`root_device_id`).
 - ebusd-Protokollschicht gegen wortgetreue Antwortdaten der Anlage
   (`tests/test_ebusd.py`, 69 Prüfungen).
 - Vollständigkeit von Übersetzungen und Icons gegen den Entitätsbestand
-  (`tests/test_translations.py`, 586 Prüfungen), dazu die Prüfung, dass kein
+  (`tests/test_translations.py`, 624 Prüfungen), dazu die Prüfung, dass kein
   Aufruf eine von HA als veraltet geführte Geräteangabe verwendet.
 - Dataclass-Komposition der Description-Klassen (Mehrfachvererbung mit
   `frozen=True, kw_only=True`) gegen strukturgleiche Nachbauten.
@@ -1870,6 +1871,122 @@ ohne HA-Installation.
      hinter dem Abzweig des Kellerkreises sitzt, ist eine Eigenheit der
      Verrohrung, keine falsche Beschriftung. Der Name bleibt, bis das
      Display etwas anderes zeigt
+
+19. **Einmalige Speicherladung als Button -- nur per Broadcast.** Der Regler
+   kennt die Funktion (Bedienungsanleitung 0020094390, Kap. 5.13.3: linken
+   Einsteller dreimal drücken, einmal drücken bricht ab; endet von selbst,
+   wenn der Speicher den Sollwert erreicht). Am 2026-11-11 mit dem Benutzer
+   am Regler mitgeschnitten, Speicher 48,0 °C bei 50 °C Soll:
+
+   | Zeit | Auslöser | Telegramm | `hwc Mode` (`daynight`) |
+   |---|---|---|---|
+   | 13:32:30 | Bedienteil, aktivieren | `10 fe b505 02 06 01` | `night` → `load` |
+   | 13:34:27 | Bedienteil, abbrechen | `10 fe b505 02 06 00` | `load` → `night` |
+   | 13:34:37 | `write -c mc Load on` | an 0x50, Antwort `done` | **unverändert** `night` |
+   | 13:37:10 | `hex fe b505 02 06 01` | `31 fe b505 02 06 01` | `night` → `load`, Display: Speicher „1x laden“ |
+   | 13:40:24 | `hex fe b505 02 06 00` | `31 fe b505 02 06 00` | `load` → `night` |
+
+   - Das Bedienteil schickt den Befehl als **Broadcast** (`fe`). Die
+     ebusd-Definition `w,mc,Load,Quick - WW Speicherladung,,50,b505,06`
+     geht an den Mischerkreis 0x50, wird quittiert und bleibt wirkungslos
+   - Der Regler nimmt den Broadcast auch von ebusd (0x31) an. Die Anzeige
+     wechselt dabei in der Grundanzeige auf „Speicher 1x laden“; die Meldung
+     „einmalige Speicherladung aktiviert“ zeigt das Bedienteil nur bei
+     Bedienung am Einsteller
+   - Rückmeldung: `hwc Mode`, letztes Feld `daynight` = `load` (nur lesen,
+     Invariante 1)
+   - **Nicht belegt:** dass die Ladung danach tatsächlich läuft. In beiden
+     Versuchen wurde nach rund zwei Minuten abgebrochen; der Systemzustand
+     blieb `heat`, der Speicher bei 48,0 °C. Die Flamme um 13:33:40 kann ein
+     Heiztakt gewesen sein (weitere Takte um 13:46 und 13:51 ohne Ladung).
+     Vor einem Button einmal durchlaufen lassen: `waterduringheat`, Flamme,
+     steigende Speichertemperatur, Ende von selbst bei Sollwert
+
+   **Nachgeholt am 2026-11-14: die Ladung läuft und endet von selbst.** Weil
+   der Speicher mit 57,8 °C über dem Soll von 50 °C stand, wurde das Soll
+   (`hwc TempDesired2`) vorübergehend auf 63 °C gesetzt, außerhalb des
+   Zeitfensters (Samstag 13:14, nächstes Fenster 17:00); 90 s lang blieb
+   der Systemzustand dabei `heat`, ohne Flamme. Dann von ebusd aus
+   `hex fe b505 02 06 01`:
+
+   | Zeit | `daynight` | Systemzustand | Flamme | Speicher | HK1-P / HK2-P |
+   |---|---|---|---|---|---|
+   | 13:16:38 | Broadcast | | | | |
+   | 13:16:45 | `night` (Zwischenspeicher) | `waterduringheat` | aus | 57,8 | aus / aus |
+   | 13:17:22 | `load` | `waterduringheat` | an | 57,8 | aus / aus |
+   | 13:21:39 | `load` | `waterduringheat` | an | 58,1 | aus / aus |
+   | 13:26:33 | `load` | `waterduringheat` | an | 62,7 | aus / aus |
+   | 13:27:10 | `night` | `waterduringheat` | aus | 64,7 | aus / aus |
+
+   Rund zehn Minuten, Ende bei Erreichen des Solls ohne Zutun, `daynight`
+   fällt von selbst zurück. Danach Soll wieder auf 50 °C (13:27:22). Während
+   der Ladung meldet `mc Status0a` Vorlaufsoll 0, Pumpe aus, Befehl `close`.
+
+   **Entschieden am 2026-11-14:** ein Schalter, kein Button. Zustand ist
+   `hwc Mode` Feld `daynight` == `load` (nur lesen), Einschalten sendet
+   `…06 01`, Ausschalten `…06 00`; endet die Ladung von selbst, geht der
+   Schalter mit dem Register aus. Schreibweg: `define` ist im Add-on nicht
+   freigeschaltet (`ERR: command not enabled`), `hex` schon -- Vorschlag
+   `hex` mit genau diesen zwei festen Telegrammen als dokumentierte
+   Ausnahme -- am 2026-11-14 vom Benutzer bestätigt.
+
+   **Umgesetzt in 0.3.8b2:** Schalter *Einmalige Speicherladung* am Gerät
+   Warmwasser (`switch.py`). Name aus der Bedienungsanleitung (Kap. 5.13.3,
+   Displaymeldung „einmalige Speicherladung aktiviert"). Die beiden
+   Telegramme stehen in `const.BROADCASTS`; `async_broadcast` im Koordinator
+   weist jedes andere ab und liest nach EFFECT_SETTLE `hwc Mode` frisch nach.
+   `hwc Mode` steht dafür auf Stufe 1 im Poll-Satz (30,78 Anteile, 185 s).
+   Noch am Gerät zu prüfen: ob 2 s EFFECT_SETTLE reichen, damit der Schalter
+   nach dem Einschalten nicht kurz auf aus zurückspringt.
+
+20. **Stellmotor und Pumpe des Mischerkreises fehlen.** Angestoßen aus
+   `~/Projects/ha-organisation` (`docs/heizung.md`, Mischertest 2026-11-12
+   und Nacht 12./13.11.). Der Stellmotor (ESBE ARA661) hatte sich vom
+   Mischer gelöst, danach blieb VF2 eine Nacht lang vier Stunden bei 43 °C
+   (Soll 35). Was der Regler in der Zeit geschickt hat, ließ sich nicht mehr
+   klären: in HA steht nur die Temperatur. Am 2026-11-14 erneut gelesen:
+
+   | Wert | ebusd | Stand 14.11. | Vorschlag |
+   |---|---|---|---|
+   | Mischerbefehl | `mc Status0a` Feld `mixer` (`off`/`open`/`close`) | `close` | Sensor (enum) *Mischer*, Stufe 1 |
+   | Einschaltdauer Mischer | `mc MixerDutyCycle` (`value`, −100…+100, + = auf, − = zu) | −51 | Sensor *Mischer Einschaltdauer* in %, Stufe 1 |
+   | Pumpe FBH (Ausgang HK2-P) | `mc Status0a` Feld `pump` (`on`/`off`) | `on` | Binärsensor *Pumpe*, Stufe 1, wie `hc Hc1PumpPort` |
+
+   - `mc Status0a` liefert in einer Antwort `flowtemp;mixer;pump;onoff;
+     flowtempdesired` (14.11.: `39.12;close;on;off;33`). Damit ließen sich
+     `mc FlowTemp` und `mc FlowTempDesired` aus dem Poll-Satz streichen und
+     über `Status0a` lesen -- vorher prüfen, dass die Werte gleich sind
+     (FlowTempDesired ganzzahlig in `Status0a`?)
+   - Feld `onoff` ist unklar (immer `off` bisher), nicht einbinden
+   - Kommentar der Definition zu `MixerDutyCycle`: „ED Mischer". Vorzeichen
+     am 2026-11-12 vor Ort belegt: positiv fährt der Motor auf (mehr Wärme
+     vom Wärmetauscher), negativ zu; bei Soll 0 (Warmwasservorrang) −100
+   - Wozu: Hängt der Mischer (Befehl `close` über Stunden bei VF2 über
+     Soll), ist das ohne diese Werte nicht vom Regelverhalten zu
+     unterscheiden. ha-organisation will daraus eine Warnung bauen
+     (VF2 > FlowTempMax 40 °C oder dauerhaft `close` bei VF2 über Soll)
+
+   **Umgesetzt in 0.3.8b2** (am 2026-11-14 mit dem Benutzer abgestimmt):
+
+   | Entität | Quelle | Stufe |
+   |---|---|---|
+   | Sensor *Mischer* (Aus / Auf / Zu) | `mc Status0a` Feld 2 | 1 |
+   | Binärsensor *Pumpe* am Gerät Fußbodenheizung | `mc Status0a` Feld 3 | (dieselbe Nachricht) |
+   | Sensor *Mischer Einschaltdauer* in % | `mc MixerDutyCycle` | 3 |
+
+   - Zustandsnamen aus dem Aktortest des Reglers („HK2 AUF", „HK2 ZU",
+     „HK2-P", Installationsanleitung 0020094391, Menü A); eine Anzeige des
+     Mischerzustands hat das Bedienteil nicht
+   - Einschaltdauer auf Stufe 3 statt 1: der Befehl zeigt schon auf Stufe 1,
+     ob der Mischer hängt; Stufe 1 hätte jeden Messwert um rund 7 % verzögert
+   - **Nicht** umgestellt: `mc FlowTemp` und `mc FlowTempDesired` bleiben
+     eigene Register. In `Status0a` fehlt dem Vorlauf der Fühlerstatus
+     (Invariante 4), und das Soll ist dort ganzzahlig -- am 14.11. stand
+     `Status0a` auf 32, `FlowTempDesired` auf 32,5
+   - Poll-Satz 28,44 → 29,78 Anteile, ein Messwert alle 179 statt 171 s
+   - Beim Lesen am 14.11. stand VF2 bei 38,5 °C, Soll 32,5, Befehl `close`,
+     Einschaltdauer −50 -- als Hinweis an ha-organisation, den Stellmotor vor
+     Ort zu prüfen
 
 Erledigt am 2026-09-02: die übrigen Solarparameter sind eingebunden (siehe
 Abschnitt 1), und die beiden Beschriftungen stehen nicht mehr auf Verdacht --

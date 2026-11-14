@@ -249,6 +249,19 @@ class EbusdClient:
         """
         await self.command(f"write -c {circuit} {message} {value}")
 
+    async def broadcast(self, telegram: str) -> None:
+        """Ein rohes Telegramm an alle Teilnehmer senden (`hex`).
+
+        Nur für die festen Telegramme aus const.BROADCASTS -- die Auswahl
+        trifft der Koordinator, dieser Client kennt die Konstanten nicht, damit
+        er ohne Home Assistant testbar bleibt. ebusd antwortet auf einen
+        Broadcast mit `done broadcast`; alles andere heißt, dass nichts
+        gesendet wurde.
+        """
+        lines = await self.command(f"hex {telegram}")
+        if not lines or not lines[0].startswith("done"):
+            raise EbusdError(f"Broadcast '{telegram}' nicht gesendet: {lines}")
+
     async def write_and_confirm(
         self, circuit: str, write_message: str, value: str, read_message: str
     ) -> str | None:

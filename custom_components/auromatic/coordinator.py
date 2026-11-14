@@ -11,7 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import CIRCUITS, DOMAIN
+from .const import BROADCASTS, CIRCUITS, DOMAIN
 from .ebusd import (
     EbusdClient,
     EbusdCommandError,
@@ -544,22 +544,43 @@ class AuromaticCoordinator(DataUpdateCoordinator[dict[str, dict[str, str]]]):
         data.setdefault(circuit, {})[read_message] = value if confirmed is None else confirmed
 
         if effect is not None:
-            effect_circuit, effect_message = effect
-            await asyncio.sleep(EFFECT_SETTLE)
-            try:
-                wirkung = await self.client.read(effect_circuit, effect_message)
-            except EbusdError as err:
-                # Der Schreibvorgang selbst ist längst quittiert; ein
-                # misslungenes Nachlesen der Wirkung darf ihn nicht zum
-                # Fehlschlag machen. Der nächste Abruf holt den Wert ohnehin.
-                _LOGGER.debug(
-                    "Wirkung %s %s nicht lesbar: %s", effect_circuit, effect_message, err
-                )
-            else:
-                if wirkung is not None:
-                    data.setdefault(effect_circuit, {})[effect_message] = wirkung
+            await self._read_effect(data, effect)
 
         self.async_set_updated_data(data)
+
+    async def async_broadcast(self, telegram: str, effect: tuple[str, str]) -> None:
+        """Ein festes Broadcast-Telegramm senden und seine Wirkung nachlesen.
+
+        Nur Telegramme aus const.BROADCASTS -- jedes andere wird abgewiesen,
+        bevor es den Bus erreicht. Ein Broadcast hat keine Lesenachricht, die
+        ihn bestätigt; was er bewirkt hat, steht allein in `effect`, und das
+        wird wie beim Schreiben einmal frisch gelesen (Invariante 7).
+        """
+        if telegram not in BROADCASTS:
+            raise ValueError(f"Telegramm nicht freigegeben: {telegram}")
+        await self.client.broadcast(telegram)
+        data = {name: dict(values) for name, values in (self.data or {}).items()}
+        await self._read_effect(data, effect)
+        self.async_set_updated_data(data)
+
+    async def _read_effect(
+        self, data: dict[str, dict[str, str]], effect: tuple[str, str]
+    ) -> None:
+        """Das Register, das die Wirkung zeigt, nach EFFECT_SETTLE frisch lesen."""
+        effect_circuit, effect_message = effect
+        await asyncio.sleep(EFFECT_SETTLE)
+        try:
+            wirkung = await self.client.read(effect_circuit, effect_message)
+        except EbusdError as err:
+            # Der Befehl selbst ist längst quittiert; ein misslungenes
+            # Nachlesen der Wirkung darf ihn nicht zum Fehlschlag machen. Der
+            # nächste Abruf holt den Wert ohnehin.
+            _LOGGER.debug(
+                "Wirkung %s %s nicht lesbar: %s", effect_circuit, effect_message, err
+            )
+        else:
+            if wirkung is not None:
+                data.setdefault(effect_circuit, {})[effect_message] = wirkung
 
     def message(self, circuit: str, message: str) -> str | None:
         """Den unzerlegten Wert einer Nachricht -- für Felder wie

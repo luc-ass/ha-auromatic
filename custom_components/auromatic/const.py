@@ -111,3 +111,24 @@ WRITE_EXCEPTIONS: Final[dict[tuple[str, str, str], str]] = {
     # `cc OperatingMode` schreiben würde.
     ("cc", "Mode", "SetMode"): "cc hat kein einfeldriges OperatingMode in der ebusd-Konfiguration",
 }
+
+# Die einzigen Telegramme, die die Integration roh über `hex` sendet --
+# vorbei an den ebusd-Definitionen, deshalb mit Nachweis und abschließend
+# aufgezählt. `AuromaticCoordinator.async_broadcast` weist alles andere ab,
+# tests/test_translations.py verlangt, dass jedes hier benutzt wird.
+#
+# Einmalige Speicherladung (STATUS.md, offener Punkt 19). Das Bedienteil
+# schickt sie als Broadcast an alle (`fe`), am 2026-11-11 wörtlich
+# mitgeschnitten: `10 fe b505 02 06 01` beim Aktivieren, `…06 00` beim
+# Abbrechen. Die ebusd-Definition `mc Load` geht dagegen an den Mischerkreis
+# 0x50, wird quittiert und bleibt wirkungslos. Von ebusd gesendet nimmt der
+# Regler den Broadcast an; am 2026-11-14 lief damit eine vollständige Ladung
+# von 57,8 auf 63 °C, die nach zehn Minuten von selbst endete. `define` ist im
+# ebusd-Add-on nicht freigeschaltet, eine eigene CSV wäre ein Fork der
+# Community-Konfiguration -- `hex` ist der Weg, der ohne beides auskommt.
+ONE_TIME_LOAD_ON: Final = "fe b505 02 06 01"
+ONE_TIME_LOAD_OFF: Final = "fe b505 02 06 00"
+BROADCASTS: Final[dict[str, str]] = {
+    ONE_TIME_LOAD_ON: "einmalige Speicherladung starten, wörtlich vom Bedienteil",
+    ONE_TIME_LOAD_OFF: "einmalige Speicherladung abbrechen, wörtlich vom Bedienteil",
+}

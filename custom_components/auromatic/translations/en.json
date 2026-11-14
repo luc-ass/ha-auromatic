@@ -99,6 +99,17 @@
       "flow_max": {
         "name": "Maximum flow temperature"
       },
+      "mixer": {
+        "name": "Mixer",
+        "state": {
+          "off": "Off",
+          "open": "Opening",
+          "close": "Closing"
+        }
+      },
+      "mixer_duty_cycle": {
+        "name": "Mixer duty cycle"
+      },
       "mode_state": {
         "name": "Controller state",
         "state": {
@@ -192,6 +203,11 @@
       },
       "yield_last_year": {
         "name": "Solar yield last year"
+      }
+    },
+    "switch": {
+      "one_time_load": {
+        "name": "One-time cylinder charge"
       }
     },
     "binary_sensor": {

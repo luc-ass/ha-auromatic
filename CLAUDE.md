@@ -21,8 +21,8 @@ Instanz gezeigt. Von innen heißt ebusd `2ad9b828-ebusd:8888`.
 ## Tests
 
 ```
-python3 tests/test_ebusd.py         # 73 Prüfungen, braucht kein Home Assistant
-python3 tests/test_translations.py  # 586 Prüfungen, braucht kein Home Assistant
+python3 tests/test_ebusd.py         # 75 Prüfungen, braucht kein Home Assistant
+python3 tests/test_translations.py  # 624 Prüfungen, braucht kein Home Assistant
 ```
 
 `test_ebusd.py` spielt wortgetreue `ebusctl`-Antworten der echten Anlage gegen
@@ -65,6 +65,12 @@ Wo eine Prüfung Heizkreis und Mischerkreis unterscheiden muss, darf sie nicht
    derselbe Datentyp wie das gelesene, und am Gerät nachgewiesen, dass es
    dasselbe Register 2B00 trifft, das der Regler auch führt. Eine neue Ausnahme
    braucht denselben Nachweis.
+
+   Ganz an den Definitionen vorbei geht nur `const.BROADCASTS`: rohe
+   Telegramme über `hex`, abschließend aufgezählt, je wörtlich vom Bedienteil
+   mitgeschnitten. Bislang die beiden der einmaligen Speicherladung (Start
+   und Abbruch, STATUS.md Punkt 19). Der Koordinator weist jedes andere
+   Telegramm ab, der Test verlangt zu jedem einen Grund und eine Verwendung.
 3. **`FlowTempMax` bleibt schreibgeschützt.** 40 °C am Mischerkreis sind die
    geräteseitige Absicherung der Fußbodenheizung.
 4. **Fühlerstatus auswerten.** ebusd liefert `-19.38;cutoff` für nicht

@@ -99,6 +99,17 @@
       "flow_max": {
         "name": "Maximale Vorlauftemperatur"
       },
+      "mixer": {
+        "name": "Mischer",
+        "state": {
+          "off": "Aus",
+          "open": "Auf",
+          "close": "Zu"
+        }
+      },
+      "mixer_duty_cycle": {
+        "name": "Mischer Einschaltdauer"
+      },
       "mode_state": {
         "name": "Reglerzustand",
         "state": {
@@ -192,6 +203,11 @@
       },
       "yield_last_year": {
         "name": "Solarertrag Vorjahr"
+      }
+    },
+    "switch": {
+      "one_time_load": {
+        "name": "Einmalige Speicherladung"
       }
     },
     "binary_sensor": {

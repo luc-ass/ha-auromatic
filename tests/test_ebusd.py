@@ -50,6 +50,7 @@ RESPONSES: dict[str, list[str]] = {
         "hwc Storage1Sensor2 = 64.88;ok",
         "hwc TempDesired2 = 50.0",
         "hwc OperatingMode2 = auto",
+        "hwc Mode = 50;auto;off;hwc;00;night",
     ],
     "sc": [
         "sc Coll1Sensor = 68.69;ok",
@@ -183,6 +184,8 @@ def check(label: str, condition: bool, detail: str = "") -> None:
     print(f"  {label:.<30} {detail}")
 
 
+# Rohe Telegramme über `hex`.
+broadcasts: list[str] = []
 # Leseanfragen mit Höchstalter: die Register außerhalb der Poll-Warteschlange.
 cached_reads: list[str] = []
 
@@ -250,6 +253,11 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             )
             value = device.get(f"{circuit} {message}", cached)
             out = [value] if value is not None else ["ERR: element not found"]
+        elif cmd.startswith("hex "):
+            # Ein Broadcast hat keinen Empfänger, der antwortet; ebusd meldet
+            # nur, dass er gesendet wurde -- wortgetreu vom 2026-11-14.
+            broadcasts.append(cmd)
+            out = ["done broadcast"]
         elif cmd == "neustart" and not restarted:
             # Bildet einen Neustart von ebusd nach: die Verbindung faellt weg,
             # und mit ihr die Poll-Liste im Speicher von ebusd. Nur beim ersten
@@ -310,6 +318,13 @@ async def run() -> None:
     check("Fuehler mit Anschluss", pf(sc["Storage1Sensor3"], status_index=1) == "64.69", "64.69")
     check("Leerer Zaehler", pf(hc["StatOperatingHours"]) is None, "'-' wird abgewiesen")
     check("Feldauswahl", pf(hc["OutsideTemp"], status_index=1) == "20.00", "20.00 aus '20.00;ok'")
+
+    hwc = await client.find("hwc")
+    check("Speicherladung lesbar", pf(hwc["Mode"], index=5) == "night",
+          "Feld daynight aus der Sammelnachricht, nur gelesen")
+    await client.broadcast("fe b505 02 06 01")
+    check("Broadcast gesendet", broadcasts == ["hex fe b505 02 06 01"],
+          "Telegramm unverändert an ebusd")
 
     mc = await client.find("mc")
     check("Sammelnachricht Mode", pf(mc["Mode"], index=1) == "off",

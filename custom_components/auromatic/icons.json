@@ -51,6 +51,12 @@
       },
       "second_pump_mode": {
         "default": "mdi:pump"
+      },
+      "mixer": {
+        "default": "mdi:valve"
+      },
+      "mixer_duty_cycle": {
+        "default": "mdi:valve"
       }
     },
     "binary_sensor": {
@@ -87,6 +93,11 @@
       },
       "sol_disable_diff": {
         "default": "mdi:delta"
+      }
+    },
+    "switch": {
+      "one_time_load": {
+        "default": "mdi:water-boiler"
       }
     }
   }

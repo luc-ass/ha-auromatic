@@ -302,6 +302,30 @@ SENSORS: tuple[AuromaticSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC, **_TEMP,
     ),
     AuromaticSensorDescription(
+        # `Status0a` Feld 2: der Stellbefehl an den Mischermotor. Die
+        # Zustandsnamen sind die des Aktortests am Regler ("HK2 AUF",
+        # "HK2 ZU"); eine Statusanzeige mit dem Mischerzustand hat das
+        # Bedienteil nicht. Anlass war der vom Mischer gelöste Stellmotor am
+        # 2026-11-12: VF2 stand danach vier Stunden über Soll, und ob der
+        # Regler in der Zeit zugefahren hat, ließ sich nicht mehr klären.
+        #
+        # Vorlauf und Vorlaufsoll stehen zwar auch in `Status0a`, bleiben aber
+        # in ihren eigenen Registern: dort hat der Vorlauf den Fühlerstatus
+        # (Invariante 4) und das Soll 0,1 K statt ganzer Grad.
+        key="mixer", circuit="mc", message="Status0a", field=1,
+        device_class=SensorDeviceClass.ENUM,
+        options=["off", "open", "close"],
+    ),
+    AuromaticSensorDescription(
+        # "ED Mischer" laut Definition: −100…+100, positiv fährt der Motor
+        # auf, negativ zu (am 2026-11-12 vor Ort belegt). Bei Vorlaufsoll 0,
+        # etwa im Warmwasservorrang, steht er auf −100.
+        key="mixer_duty_cycle", circuit="mc", message="MixerDutyCycle",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+    ),
+    AuromaticSensorDescription(
         key="mode_state", circuit="mc", message="OperatingMode",
         device_class=SensorDeviceClass.ENUM,
         options=[*MODE_OPTIONS, "disabled"],

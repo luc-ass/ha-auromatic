@@ -32,9 +32,9 @@ Daraus die drei Stufen unten:
 * `POLL_SETTING` (9) -- Sollwerte, Konfiguration und Zählerstände. Sie ändern
   sich selten, und niemand wartet auf sie.
 
-Mit 23 Registern auf 1, fünf auf 3 und 34 auf 9 ergeben sich 28,44 Anteile:
-ein Messwert kommt rund alle 2,8 Minuten an die Reihe, ein Bedienelement alle
-8,5, ein Sollwert alle 25,6 -- bei unveränderter Buslast gegenüber den 156
+Mit 25 Registern auf 1, sechs auf 3 und 34 auf 9 ergeben sich 30,78 Anteile:
+ein Messwert kommt rund alle 3,1 Minuten an die Reihe, ein Bedienelement alle
+9,2, ein Sollwert alle 27,7 -- bei unveränderter Buslast gegenüber den 156
 Nachrichten von vorher.
 
 Nachgemessen an einem vollen Tag (2026-09-02, 16 h Laufzeit, damals noch
@@ -66,6 +66,15 @@ Messwert kommt statt alle 143 nun alle 171 Sekunden dran. Das ist der teuerste
 Zuwachs bisher, und er ist bewusst bezahlt: ohne Pumpe HK1 und Ventil MA ist
 der Rücklauf nicht zu deuten, und ohne Modulation und Sperrzeit nicht, warum
 der Brenner taktet.
+
+Ebenfalls mit 0.3.8 (offener Punkt 20): `mc Status0a` auf Stufe 1 für
+Mischerbefehl und Pumpe HK2-P, `mc MixerDutyCycle` auf Stufe 3. Von 28,44 auf
+29,78 Anteile, 179 statt 171 Sekunden. Die Einschaltdauer steht bewusst nicht
+auf Stufe 1: ob der Mischer hängt, zeigt schon der Befehl, und für eine
+Warnung über Stunden reichen neun Minuten für die Stärke.
+
+Dazu `hwc Mode` auf Stufe 1 für den Schalter der einmaligen Speicherladung
+(offener Punkt 19): 30,78 Anteile, ein Messwert alle 185 Sekunden.
 
 **Der Poll-Satz muss vollständig sein.** Steht ein Register hier nicht drin,
 holt ebusd es nicht mehr vom Bus, und `find` liefert bis in alle Ewigkeit den
@@ -277,6 +286,9 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         "HeatingCurve": POLL_SETTING,
         "OperatingMode": POLL_CONTROL,
         "FlowTempMax": POLL_SETTING,
+        # Mischerbefehl und Pumpe HK2-P in einer Antwort (offener Punkt 20).
+        "Status0a": POLL_MEASURED,
+        "MixerDutyCycle": POLL_CONTROL,
     },
     "hwc": {
         "Storage1Sensor2": POLL_MEASURED,
@@ -287,6 +299,11 @@ POLL_SET: Final[dict[str, dict[str, int]]] = {
         # Stufe 1, weil eine Pumpe in Minuten schaltet -- und weil sie sonst
         # der einzige Messwert des Kreises wäre, der nachhinkt.
         "CirPump2": POLL_MEASURED,
+        # Die Sammelnachricht, nur gelesen (Invariante 1): ihr letztes Feld
+        # `daynight` steht während der einmaligen Speicherladung auf `load`.
+        # Auf Stufe 1, weil eine Ladung nur rund zehn Minuten dauert -- auf
+        # Stufe 3 stünde der Schalter danach noch bis zu neun Minuten auf an.
+        "Mode": POLL_MEASURED,
     },
     # Der Zirkulationskreis (0x23). Eine einzige Nachricht trägt alles, was
     # gebraucht wird: Betriebsart (Feld 2) und Reglerzustand. Auf Stufe 3 wie

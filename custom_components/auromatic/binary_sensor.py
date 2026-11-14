@@ -56,6 +56,12 @@ def _heat_released(raw: str) -> bool:
     return len(parts) > 4 and parts[4].strip() == "0"
 
 
+def _mixer_pump_on(raw: str) -> bool:
+    """`mc Status0a` Feld 3: der Pumpenausgang HK2-P des Mischerkreises."""
+    parts = raw.split(";")
+    return len(parts) > 2 and parts[2].strip() == "on"
+
+
 def _has_error(raw: str) -> bool:
     """Der Fehlerspeicher führt fünf Codes. '-;-;-;-;-' heißt störungsfrei.
 
@@ -131,6 +137,14 @@ BINARY_SENSORS: tuple[AuromaticBinaryDescription, ...] = (
         # Warteschlange für dieselbe Aussage wäre einer zu viel.
         key="pump", translation_key="circuit_pump", circuit="hc",
         message="Hc1PumpPort", device_class=BinarySensorDeviceClass.RUNNING,
+    ),
+    AuromaticBinaryDescription(
+        # Das Gegenstück im Mischerkreis: Ausgang HK2-P, die Pumpe der
+        # Fußbodenheizung. Aus derselben Nachricht wie der Mischerbefehl in
+        # sensor.py, also ohne weiteren Platz in der Warteschlange.
+        key="pump", translation_key="circuit_pump", circuit="mc",
+        message="Status0a", device_class=BinarySensorDeviceClass.RUNNING,
+        is_on_fn=_mixer_pump_on,
     ),
     AuromaticBinaryDescription(
         key="pump", circuit="sc", message="SolCollPumpED1",

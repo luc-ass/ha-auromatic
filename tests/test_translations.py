@@ -38,7 +38,7 @@ read_maxage = set(poll_module.READ_MAXAGE)
 
 # Plattform -> Modul. water_heater fehlt bewusst: seine Entität ist das
 # Hauptmerkmal des Geräts und trägt deshalb keinen eigenen Namen.
-PLATFORMS = ("sensor", "binary_sensor", "select", "number")
+PLATFORMS = ("sensor", "binary_sensor", "select", "number", "switch")
 
 # Die ebusd-Definitionen der Enum-Sensoren, wortgetreu aus `ebusctl find -f`
 # an der Anlage (2026-11-05 und 2026-11-11). Die Optionsliste muss jeden Wert
@@ -53,7 +53,23 @@ ENUM_DEFINITIONS = {
     "pump_mode": "r,bai,HcPumpMode,d.18 Pumpenbetriebsart,,08,b509,0d4904,value,"
                  "s,UCH,0=post_run;1=permanent;2=winter;3=eco,,"
                  "Pumpenbetriebsart für den Heizbetrieb",
+    # Mehrfeldrig: die Werteliste steht beim Feld `mixer`, nicht in Spalte 11.
+    "mixer": "r,mc,Status0a,Status Vorlauf Ist/Mixer/Pumpe/Vorlauf Soll,,50,b504,"
+             "0a,flowtemp,s,D2C,,°C,Temperatur,mixer,s,UCH,0=off;1=open;2=close,,"
+             "Mixer Status,pump,s,UCH,0=off;1=on,,,onoff,s,UCH,0=off;1=on,,,"
+             "flowtempdesired,s,UCH,,°C,Temperatur",
 }
+
+
+def enum_values(line: str, key: str) -> list[str]:
+    """Werteliste eines ebusd-Feldes. Felder beginnen in Spalte 8, je sechs
+    Spalten (Name, Teil, Typ, Werte, Einheit, Kommentar). Einfeldrige
+    Nachrichten nennen ihr Feld `value`; dann zählt das erste.
+    """
+    cols = next(csv.reader([line]))
+    fields = [cols[i:i + 6] for i in range(8, len(cols), 6)]
+    match = next((f for f in fields if f[0] == key), fields[0])
+    return [item.split("=", 1)[1] for item in match[3].split(";")]
 
 checks = 0
 
@@ -419,10 +435,30 @@ def main() -> int:
             source = (ROOT / f"{platform}.py").read_text()
             check(f"{platform}: PARALLEL_UPDATES gesetzt", "PARALLEL_UPDATES" in source)
 
+        # Rohe Telegramme an den ebusd-Definitionen vorbei: nur die aus
+        # const.BROADCASTS, jedes mit Grund und jedes auch benutzt. Ein
+        # Schalter, der eine Konstante nennt, die es dort nicht gibt, fiele
+        # sonst erst auf, wenn der Koordinator ihn zur Laufzeit abweist.
+        used_telegrams: set[str] = set()
+        tree = ast.parse((ROOT / "switch.py").read_text())
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and getattr(node.func, "id", "").endswith("Description")):
+                continue
+            fields = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+            for name in ("telegram_on", "telegram_off"):
+                value = fields.get(name)
+                telegram = getattr(const, getattr(value, "id", ""), None)
+                check(f"switch.{fields['key'].value}.{name}: freigegeben",
+                      telegram in const.BROADCASTS, str(telegram))
+                used_telegrams.add(telegram)
+        for telegram, reason in const.BROADCASTS.items():
+            check(f"Broadcast {telegram}: begründet und benutzt",
+                  bool(reason) and telegram in used_telegrams, reason)
+
         sensors = descriptions("sensor")
         for key, line in ENUM_DEFINITIONS.items():
-            values = next(csv.reader([line]))[11]
-            expected = [item.split("=", 1)[1] for item in values.split(";")]
+            expected = enum_values(line, key)
             check(f"sensor.{key}: Optionen = ebusd-Werteliste",
                   sensors[key]["options"] == expected, ", ".join(expected))
 
